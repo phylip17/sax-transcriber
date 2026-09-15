@@ -44,6 +44,10 @@ def baixar_audio(url_ou_busca: str, pasta_destino: str) -> str:
         "-x",
         "--audio-format", "wav",
         "--audio-quality", "0",
+        # O cliente "tv" (o mesmo que a Smart TV do YouTube usa) nao exige o
+        # "PO Token" de verificacao que o YouTube passou a cobrar de outros
+        # clientes, desde que haja cookies de uma conta logada.
+        "--extractor-args", "youtube:player_client=tv",
         "-o", saida_template,
     ]
 
