@@ -2,6 +2,14 @@ const formulario = document.getElementById("formulario");
 const campoOrigem = document.getElementById("origem");
 const botaoEnviar = document.getElementById("botaoEnviar");
 
+const formularioArquivo = document.getElementById("formularioArquivo");
+const campoArquivo = document.getElementById("arquivoAudio");
+const botaoEnviarArquivo = document.getElementById("botaoEnviarArquivo");
+const dicaArquivo = document.getElementById("dicaArquivo");
+
+const abaLink = document.getElementById("abaLink");
+const abaArquivo = document.getElementById("abaArquivo");
+
 const console_ = document.getElementById("console");
 const linhasConsole = document.getElementById("linhasConsole");
 
@@ -14,6 +22,26 @@ const botaoPdf = document.getElementById("botaoPdf");
 const caixaErro = document.getElementById("erro");
 
 let notasAtuais = [];
+
+abaLink.addEventListener("click", () => {
+  abaLink.classList.add("aba--ativa");
+  abaArquivo.classList.remove("aba--ativa");
+  abaLink.setAttribute("aria-selected", "true");
+  abaArquivo.setAttribute("aria-selected", "false");
+  formulario.hidden = false;
+  formularioArquivo.hidden = true;
+  dicaArquivo.hidden = true;
+});
+
+abaArquivo.addEventListener("click", () => {
+  abaArquivo.classList.add("aba--ativa");
+  abaLink.classList.remove("aba--ativa");
+  abaArquivo.setAttribute("aria-selected", "true");
+  abaLink.setAttribute("aria-selected", "false");
+  formularioArquivo.hidden = false;
+  formulario.hidden = true;
+  dicaArquivo.hidden = false;
+});
 
 function adicionarLinhaConsole(texto) {
   const linha = document.createElement("div");
@@ -49,6 +77,34 @@ function mostrarResultado(notas) {
   secaoResultado.hidden = false;
 }
 
+async function processarResposta(resposta) {
+  const leitor = resposta.body.getReader();
+  const decodificador = new TextDecoder("utf-8");
+  let restante = "";
+
+  while (true) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+
+    restante += decodificador.decode(value, { stream: true });
+    const linhas = restante.split("\n");
+    restante = linhas.pop(); // guarda pedaço incompleto para a próxima leitura
+
+    for (const linha of linhas) {
+      if (!linha.trim()) continue;
+      const evento_ = JSON.parse(linha);
+
+      if (evento_.tipo === "log") {
+        adicionarLinhaConsole(evento_.mensagem);
+      } else if (evento_.tipo === "erro") {
+        mostrarErro(evento_.mensagem);
+      } else if (evento_.tipo === "resultado") {
+        mostrarResultado(evento_.notas);
+      }
+    }
+  }
+}
+
 formulario.addEventListener("submit", async (evento) => {
   evento.preventDefault();
   const origem = campoOrigem.value.trim();
@@ -64,37 +120,38 @@ formulario.addEventListener("submit", async (evento) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ origem }),
     });
-
-    const leitor = resposta.body.getReader();
-    const decodificador = new TextDecoder("utf-8");
-    let restante = "";
-
-    while (true) {
-      const { done, value } = await leitor.read();
-      if (done) break;
-
-      restante += decodificador.decode(value, { stream: true });
-      const linhas = restante.split("\n");
-      restante = linhas.pop(); // guarda pedaço incompleto para a próxima leitura
-
-      for (const linha of linhas) {
-        if (!linha.trim()) continue;
-        const evento_ = JSON.parse(linha);
-
-        if (evento_.tipo === "log") {
-          adicionarLinhaConsole(evento_.mensagem);
-        } else if (evento_.tipo === "erro") {
-          mostrarErro(evento_.mensagem);
-        } else if (evento_.tipo === "resultado") {
-          mostrarResultado(evento_.notas);
-        }
-      }
-    }
+    await processarResposta(resposta);
   } catch (err) {
-    mostrarErro("Não foi possível conectar ao servidor local. Confira se o app.py está rodando.");
+    mostrarErro("Não foi possível conectar ao servidor. Tenta de novo em alguns segundos.");
   } finally {
     botaoEnviar.disabled = false;
     botaoEnviar.textContent = "Extrair notas";
+  }
+});
+
+formularioArquivo.addEventListener("submit", async (evento) => {
+  evento.preventDefault();
+  const arquivo = campoArquivo.files[0];
+  if (!arquivo) return;
+
+  limparEstado();
+  botaoEnviarArquivo.disabled = true;
+  botaoEnviarArquivo.textContent = "Processando...";
+
+  try {
+    const dadosFormulario = new FormData();
+    dadosFormulario.append("arquivo", arquivo);
+
+    const resposta = await fetch("/api/transcrever-arquivo", {
+      method: "POST",
+      body: dadosFormulario,
+    });
+    await processarResposta(resposta);
+  } catch (err) {
+    mostrarErro("Não foi possível conectar ao servidor. Tenta de novo em alguns segundos.");
+  } finally {
+    botaoEnviarArquivo.disabled = false;
+    botaoEnviarArquivo.textContent = "Extrair notas";
   }
 });
 
