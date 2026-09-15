@@ -22,5 +22,6 @@ ENV PORT=10000
 EXPOSE 10000
 
 # --timeout alto porque analisar a melodia de uma musica pode levar 1-2 minutos
-# --workers 1 porque o plano gratuito do Render tem pouca CPU/memoria
-CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 2 --timeout 300
+# --workers 1 --threads 1 porque o plano gratuito do Render tem so 512MB de RAM;
+# rodar so uma analise de audio por vez evita estourar a memoria disponivel
+CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 1 --timeout 300
