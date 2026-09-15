@@ -16,13 +16,16 @@ entao o bloco "if __name__" abaixo so roda no seu uso local.
 
 import json
 import os
+import tempfile
 
 from flask import Flask, Response, render_template, request
+from werkzeug.utils import secure_filename
 
 import sax_core
 import pdf_export
 
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = 60 * 1024 * 1024  # 60 MB por upload
 
 
 @app.route("/")
@@ -44,6 +47,29 @@ def transcrever():
                 yield json.dumps(evento, ensure_ascii=False) + "\n"
         except Exception as exc:  # protege o worker de qualquer falha inesperada
             yield json.dumps({"tipo": "erro", "mensagem": f"Erro inesperado: {exc}"}, ensure_ascii=False) + "\n"
+
+    return Response(gerar(), mimetype="application/x-ndjson")
+
+
+@app.route("/api/transcrever-arquivo", methods=["POST"])
+def transcrever_arquivo():
+    arquivo = request.files.get("arquivo")
+
+    def gerar():
+        if arquivo is None or arquivo.filename == "":
+            yield json.dumps({"tipo": "erro", "mensagem": "Nenhum arquivo de audio enviado."}) + "\n"
+            return
+
+        with tempfile.TemporaryDirectory() as pasta_tmp:
+            nome_seguro = secure_filename(arquivo.filename) or "audio_enviado"
+            caminho_salvo = os.path.join(pasta_tmp, nome_seguro)
+            arquivo.save(caminho_salvo)
+
+            try:
+                for evento in sax_core.processar_arquivo_stream(caminho_salvo):
+                    yield json.dumps(evento, ensure_ascii=False) + "\n"
+            except Exception as exc:
+                yield json.dumps({"tipo": "erro", "mensagem": f"Erro inesperado: {exc}"}, ensure_ascii=False) + "\n"
 
     return Response(gerar(), mimetype="application/x-ndjson")
 
