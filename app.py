@@ -108,6 +108,24 @@ def gerar_pdf():
     )
 
 
+@app.route("/api/pdf-letra", methods=["POST"])
+def gerar_pdf_letra():
+    dados = request.get_json(force=True, silent=True) or {}
+    grupos = dados.get("grupos") or []
+    origem = (dados.get("origem") or "").strip() or None
+
+    if not grupos:
+        return Response("Nenhum grupo de notas/letra informado.", status=400)
+
+    pdf_bytes = pdf_export.gerar_pdf_com_letra(grupos, origem=origem)
+
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=notas_com_letra.pdf"},
+    )
+
+
 if __name__ == "__main__":
     porta = int(os.environ.get("PORT", 5000))
     modo_debug = os.environ.get("FLASK_DEBUG", "1") == "1"
