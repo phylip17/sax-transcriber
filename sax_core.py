@@ -116,36 +116,66 @@ def transpor_para_sax_alto(nota_concertante: str) -> str:
     return librosa.midi_to_note(midi + TRANSPOSE_SEMITONES, unicode=False)
 
 
-def agrupar_notas(f0, voiced_flag, voiced_prob, tempo_por_frame):
-    """Converte a serie de frequencias quadro a quadro em uma sequencia de
-    notas discretas, agrupando quadros consecutivos iguais e descartando
-    notas muito curtas ou de baixa confianca."""
-    eventos = []
-    nota_atual = None
+LIMIAR_PAUSA_FRASE_S = 0.4  # pausas a partir disso marcam quebra de frase/linha
+
+
+def _segmentar(f0, voiced_flag, voiced_prob, tempo_por_frame):
+    """Converte a serie de frequencias quadro a quadro numa lista de
+    segmentos (nota OU silencio), cada um com seu valor e duracao.
+    Diferente de uma lista so de notas, aqui guardamos tambem as pausas -
+    sao elas que usamos depois para detectar onde uma frase termina."""
+    segmentos = []
+    valor_atual = None
     inicio_atual = 0.0
 
     for i, (freq, voz, prob) in enumerate(zip(f0, voiced_flag, voiced_prob)):
         tempo = i * tempo_por_frame
 
         if voz and prob >= CONFIDENCE_THRESHOLD and not np.isnan(freq):
-            nota = librosa.hz_to_note(freq, unicode=False)
+            valor = librosa.hz_to_note(freq, unicode=False)
         else:
-            nota = None
+            valor = None
 
-        if nota != nota_atual:
-            if nota_atual is not None:
-                duracao = tempo - inicio_atual
-                if duracao >= MIN_NOTE_DURATION_S:
-                    eventos.append((nota_atual, duracao))
-            nota_atual = nota
+        if valor != valor_atual:
+            segmentos.append({"valor": valor_atual, "duracao": tempo - inicio_atual})
+            valor_atual = valor
             inicio_atual = tempo
 
-    if nota_atual is not None:
-        duracao = (len(f0) * tempo_por_frame) - inicio_atual
-        if duracao >= MIN_NOTE_DURATION_S:
-            eventos.append((nota_atual, duracao))
+    segmentos.append({"valor": valor_atual, "duracao": (len(f0) * tempo_por_frame) - inicio_atual})
+    return segmentos
 
-    return eventos
+
+def agrupar_notas(segmentos):
+    """Filtra os segmentos, mantendo so as notas (descarta silencios e
+    notas curtas demais / ruido). Retorna lista de (nota, duracao)."""
+    return [
+        (s["valor"], s["duracao"])
+        for s in segmentos
+        if s["valor"] is not None and s["duracao"] >= MIN_NOTE_DURATION_S
+    ]
+
+
+def agrupar_em_frases(segmentos):
+    """Agrupa as notas detectadas em 'frases', separando sempre que houver
+    uma pausa de silencio >= LIMIAR_PAUSA_FRASE_S entre elas. E uma
+    aproximacao das frases respiradas de uma melodia (uteis como linhas
+    de uma letra). Retorna lista de listas de notas (nao transpostas)."""
+    frases = []
+    frase_atual = []
+
+    for s in segmentos:
+        if s["valor"] is None:
+            if s["duracao"] >= LIMIAR_PAUSA_FRASE_S and frase_atual:
+                frases.append(frase_atual)
+                frase_atual = []
+            continue
+        if s["duracao"] >= MIN_NOTE_DURATION_S:
+            frase_atual.append(s["valor"])
+
+    if frase_atual:
+        frases.append(frase_atual)
+
+    return frases
 
 
 def _analisar_e_transpor(caminho_audio: str):
@@ -155,7 +185,8 @@ def _analisar_e_transpor(caminho_audio: str):
     f0, voiced_flag, voiced_prob, tempo_por_frame = extrair_melodia(caminho_audio)
 
     yield {"tipo": "log", "mensagem": "Agrupando as notas detectadas..."}
-    eventos = agrupar_notas(f0, voiced_flag, voiced_prob, tempo_por_frame)
+    segmentos = _segmentar(f0, voiced_flag, voiced_prob, tempo_por_frame)
+    eventos = agrupar_notas(segmentos)
 
     if not eventos:
         yield {"tipo": "erro", "mensagem": "Nao foi possivel detectar uma melodia clara nesse audio."}
@@ -164,7 +195,10 @@ def _analisar_e_transpor(caminho_audio: str):
     yield {"tipo": "log", "mensagem": f"{len(eventos)} notas detectadas. Transpondo para Sax Alto em Eb..."}
     notas_sax = [transpor_para_sax_alto(nota) for nota, _dur in eventos]
 
-    yield {"tipo": "resultado", "notas": notas_sax}
+    frases_concertantes = agrupar_em_frases(segmentos)
+    frases_sax = [[transpor_para_sax_alto(nota) for nota in frase] for frase in frases_concertantes]
+
+    yield {"tipo": "resultado", "notas": notas_sax, "frases": frases_sax}
 
 
 def processar_stream(origem: str):
