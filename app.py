@@ -15,9 +15,12 @@ entao o bloco "if __name__" abaixo so roda no seu uso local.
 """
 
 import json
+import logging
 import os
 import shutil
+import sys
 import tempfile
+import traceback
 
 from flask import Flask, Response, render_template, request
 from werkzeug.utils import secure_filename
@@ -27,6 +30,9 @@ import pdf_export
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 60 * 1024 * 1024  # 60 MB por upload
+
+logger = logging.getLogger("sax_transcriber")
+logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
 
 @app.route("/")
@@ -47,6 +53,7 @@ def transcrever():
             for evento in sax_core.processar_stream(origem):
                 yield json.dumps(evento, ensure_ascii=False) + "\n"
         except Exception as exc:  # protege o worker de qualquer falha inesperada
+            logger.error("Falha em /api/transcrever:\n%s", traceback.format_exc())
             yield json.dumps({"tipo": "erro", "mensagem": f"Erro inesperado: {exc}"}, ensure_ascii=False) + "\n"
 
     return Response(gerar(), mimetype="application/x-ndjson")
@@ -75,6 +82,7 @@ def transcrever_arquivo():
             for evento in sax_core.processar_arquivo_stream(caminho_salvo):
                 yield json.dumps(evento, ensure_ascii=False) + "\n"
         except Exception as exc:
+            logger.error("Falha em /api/transcrever-arquivo:\n%s", traceback.format_exc())
             yield json.dumps({"tipo": "erro", "mensagem": f"Erro inesperado: {exc}"}, ensure_ascii=False) + "\n"
         finally:
             shutil.rmtree(pasta_tmp, ignore_errors=True)
