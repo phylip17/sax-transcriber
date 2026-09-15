@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: sax-transcriber
+    env: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
