@@ -16,6 +16,7 @@ entao o bloco "if __name__" abaixo so roda no seu uso local.
 
 import json
 import os
+import shutil
 import tempfile
 
 from flask import Flask, Response, render_template, request
@@ -55,21 +56,28 @@ def transcrever():
 def transcrever_arquivo():
     arquivo = request.files.get("arquivo")
 
-    def gerar():
-        if arquivo is None or arquivo.filename == "":
+    if arquivo is None or arquivo.filename == "":
+        def gerar_erro():
             yield json.dumps({"tipo": "erro", "mensagem": "Nenhum arquivo de audio enviado."}) + "\n"
-            return
+        return Response(gerar_erro(), mimetype="application/x-ndjson")
 
-        with tempfile.TemporaryDirectory() as pasta_tmp:
-            nome_seguro = secure_filename(arquivo.filename) or "audio_enviado"
-            caminho_salvo = os.path.join(pasta_tmp, nome_seguro)
-            arquivo.save(caminho_salvo)
+    # O arquivo precisa ser salvo AGORA, antes da resposta em streaming
+    # comecar - o Flask fecha o arquivo enviado assim que a view retorna,
+    # entao salvar dentro do gerador (que so roda durante o envio da
+    # resposta) falha com "read of closed file".
+    pasta_tmp = tempfile.mkdtemp()
+    nome_seguro = secure_filename(arquivo.filename) or "audio_enviado"
+    caminho_salvo = os.path.join(pasta_tmp, nome_seguro)
+    arquivo.save(caminho_salvo)
 
-            try:
-                for evento in sax_core.processar_arquivo_stream(caminho_salvo):
-                    yield json.dumps(evento, ensure_ascii=False) + "\n"
-            except Exception as exc:
-                yield json.dumps({"tipo": "erro", "mensagem": f"Erro inesperado: {exc}"}, ensure_ascii=False) + "\n"
+    def gerar():
+        try:
+            for evento in sax_core.processar_arquivo_stream(caminho_salvo):
+                yield json.dumps(evento, ensure_ascii=False) + "\n"
+        except Exception as exc:
+            yield json.dumps({"tipo": "erro", "mensagem": f"Erro inesperado: {exc}"}, ensure_ascii=False) + "\n"
+        finally:
+            shutil.rmtree(pasta_tmp, ignore_errors=True)
 
     return Response(gerar(), mimetype="application/x-ndjson")
 
