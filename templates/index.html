@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transcritor para Sax Alto · Eb</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="palco">
+  <main class="ficha">
+    <header class="ficha__cabecalho">
+      <span class="ficha__selo">Sax alto em Eb</span>
+      <h1 class="ficha__titulo">Cole uma música,<br>receba as notas</h1>
+      <p class="ficha__sub">Link do YouTube ou o nome da faixa — o resto é com a gente.</p>
+    </header>
+
+    <form id="formulario" class="entrada">
+      <input
+        type="text"
+        id="origem"
+        name="origem"
+        placeholder="https://youtube.com/... ou “Garota de Ipanema”"
+        autocomplete="off"
+        required
+      >
+      <button type="submit" id="botaoEnviar">Extrair notas</button>
+    </form>
+
+    <section id="console" class="console" hidden aria-live="polite">
+      <div id="linhasConsole" class="console__linhas"></div>
+    </section>
+
+    <section id="resultado" class="resultado" hidden>
+      <div class="resultado__cabecalho">
+        <h2>Notas para o sax</h2>
+        <div class="resultado__acoes">
+          <button id="botaoCopiar" type="button" class="botao-secundario">Copiar</button>
+          <button id="botaoBaixar" type="button" class="botao-secundario">Baixar .txt</button>
+          <button id="botaoPdf" type="button" class="botao-secundario">Baixar PDF</button>
+        </div>
+      </div>
+      <div id="pauta" class="pauta"></div>
+    </section>
+
+    <p id="erro" class="erro" hidden></p>
+  </main>
+
+  <p class="rodape">Roda localmente na sua máquina — nada sai do seu computador além do pedido ao YouTube.</p>
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
