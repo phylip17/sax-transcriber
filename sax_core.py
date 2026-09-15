@@ -24,6 +24,13 @@ MIN_NOTE_DURATION_S = 0.12   # ignora notas mais curtas que isso (ruido/artefato
 CONFIDENCE_THRESHOLD = 0.5   # confianca minima do pyin para considerar "voiced"
 
 
+# Caminho onde o Render disponibiliza "Secret Files" em tempo de execucao.
+# Se um arquivo cookies.txt existir ali, usamos ele para autenticar no YouTube
+# e contornar o bloqueio "Sign in to confirm you're not a bot" que o YouTube
+# aplica a pedidos vindos de servidores/datacenters.
+CAMINHO_COOKIES = os.environ.get("YOUTUBE_COOKIES_FILE", "/etc/secrets/cookies.txt")
+
+
 def baixar_audio(url_ou_busca: str, pasta_destino: str) -> str:
     """Baixa o audio (melhor qualidade) de uma URL do YouTube ou de uma busca,
     usando yt-dlp, e retorna o caminho do arquivo .wav gerado.
@@ -37,8 +44,12 @@ def baixar_audio(url_ou_busca: str, pasta_destino: str) -> str:
         "--audio-format", "wav",
         "--audio-quality", "0",
         "-o", saida_template,
-        alvo,
     ]
+
+    if os.path.exists(CAMINHO_COOKIES):
+        comando += ["--cookies", CAMINHO_COOKIES]
+
+    comando.append(alvo)
 
     resultado = subprocess.run(comando, capture_output=True, text=True)
     if resultado.returncode != 0:
