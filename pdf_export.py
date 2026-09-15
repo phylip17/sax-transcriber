@@ -88,3 +88,74 @@ def gerar_pdf_notas(notas, titulo="Notas para Sax Alto (Eb)", origem=None):
     documento.build(elementos)
     buffer.seek(0)
     return buffer.read()
+
+
+def gerar_pdf_com_letra(grupos, titulo="Notas para Sax Alto (Eb)", origem=None):
+    """Recebe uma lista de grupos [{"linha": "texto da letra", "notas": [...]}]
+    - a letra e fornecida pelo proprio usuario - e retorna os bytes de um PDF
+    com as notas de cada trecho exibidas acima da respectiva linha."""
+    buffer = io.BytesIO()
+    documento = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        topMargin=22 * mm,
+        bottomMargin=20 * mm,
+        leftMargin=20 * mm,
+        rightMargin=20 * mm,
+    )
+
+    estilos = getSampleStyleSheet()
+    estilo_titulo = ParagraphStyle(
+        "TituloCustom2", parent=estilos["Title"],
+        fontName="Helvetica-Bold", fontSize=20, alignment=TA_LEFT,
+        textColor=colors.HexColor("#1B2430"), spaceAfter=4,
+    )
+    estilo_sub = ParagraphStyle(
+        "SubCustom2", parent=estilos["Normal"],
+        fontName="Helvetica", fontSize=10.5,
+        textColor=colors.HexColor("#6b665b"), spaceAfter=18,
+    )
+    estilo_notas = ParagraphStyle(
+        "NotasLinha", parent=estilos["Normal"],
+        fontName="Courier-Bold", fontSize=11,
+        textColor=colors.HexColor("#8a5a1f"), spaceAfter=1,
+    )
+    estilo_letra = ParagraphStyle(
+        "LetraLinha", parent=estilos["Normal"],
+        fontName="Helvetica", fontSize=13,
+        textColor=colors.HexColor("#1B2430"), spaceAfter=12,
+    )
+    estilo_rodape = ParagraphStyle(
+        "RodapeCustom2", parent=estilos["Normal"],
+        fontName="Helvetica-Oblique", fontSize=8.5,
+        textColor=colors.HexColor("#948d80"), spaceBefore=18,
+    )
+
+    total_notas = sum(len(g.get("notas") or []) for g in grupos)
+
+    elementos = [Paragraph(titulo, estilo_titulo)]
+
+    linha_sub = f"{total_notas} notas · transposição para Sax Alto em Eb"
+    if origem:
+        linha_sub += f" · {origem}"
+    linha_sub += f" · gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+    elementos.append(Paragraph(linha_sub, estilo_sub))
+
+    for grupo in grupos:
+        notas_da_linha = grupo.get("notas") or []
+        texto_linha = (grupo.get("linha") or "").strip()
+
+        if notas_da_linha:
+            elementos.append(Paragraph(" ".join(notas_da_linha), estilo_notas))
+        if texto_linha:
+            elementos.append(Paragraph(texto_linha, estilo_letra))
+
+    elementos.append(Paragraph(
+        "Sequência de alturas aproximada, sem indicação de ritmo. Confira sempre ouvindo a música. "
+        "A letra é a que você mesmo inseriu.",
+        estilo_rodape,
+    ))
+
+    documento.build(elementos)
+    buffer.seek(0)
+    return buffer.read()
