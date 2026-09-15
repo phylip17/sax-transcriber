@@ -19,6 +19,11 @@
       <p class="ficha__sub">Link do YouTube ou o nome da faixa — o resto é com a gente.</p>
     </header>
 
+    <div class="abas" role="tablist">
+      <button type="button" id="abaLink" class="aba aba--ativa" role="tab" aria-selected="true">Link do YouTube</button>
+      <button type="button" id="abaArquivo" class="aba" role="tab" aria-selected="false">Enviar arquivo de áudio</button>
+    </div>
+
     <form id="formulario" class="entrada">
       <input
         type="text"
@@ -26,10 +31,18 @@
         name="origem"
         placeholder="https://youtube.com/... ou “Garota de Ipanema”"
         autocomplete="off"
-        required
       >
       <button type="submit" id="botaoEnviar">Extrair notas</button>
     </form>
+
+    <form id="formularioArquivo" class="entrada" hidden>
+      <input type="file" id="arquivoAudio" name="arquivo" accept="audio/*">
+      <button type="submit" id="botaoEnviarArquivo">Extrair notas</button>
+    </form>
+    <p id="dicaArquivo" class="dica-arquivo" hidden>
+      Aceita mp3, wav, m4a e outros formatos comuns de áudio — baixado por
+      fora do app, com qualquer ferramenta de sua confiança.
+    </p>
 
     <section id="console" class="console" hidden aria-live="polite">
       <div id="linhasConsole" class="console__linhas"></div>
