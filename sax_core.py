@@ -9,6 +9,7 @@ pelo aplicativo web (app.py), para nao duplicar a logica em dois lugares.
 """
 
 import os
+import shutil
 import subprocess
 import tempfile
 
@@ -47,7 +48,12 @@ def baixar_audio(url_ou_busca: str, pasta_destino: str) -> str:
     ]
 
     if os.path.exists(CAMINHO_COOKIES):
-        comando += ["--cookies", CAMINHO_COOKIES]
+        # O yt-dlp tenta atualizar o arquivo de cookies apos o uso (renova a
+        # sessao). /etc/secrets e somente leitura no Render, entao copiamos
+        # o arquivo para a pasta temporaria (gravavel) antes de usar.
+        cookies_gravavel = os.path.join(pasta_destino, "cookies.txt")
+        shutil.copyfile(CAMINHO_COOKIES, cookies_gravavel)
+        comando += ["--cookies", cookies_gravavel]
 
     comando.append(alvo)
 
