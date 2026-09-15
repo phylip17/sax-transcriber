@@ -30,8 +30,12 @@ CONFIDENCE_THRESHOLD = 0.5   # confianca minima do pyin para considerar "voiced"
 # memoria/tempo disponiveis, mesmo custando um pouco de precisao ritmica.
 TAXA_AMOSTRAGEM = 16000
 DURACAO_MAXIMA_S = 90    # 1min30 - o suficiente pra maior parte de uma melodia
-HOP_LENGTH = 2048        # padrao do librosa e 512; um valor maior processa
-                         # menos quadros por segundo, ~4x mais rapido
+# O pYIN espera hop_length = frame_length/4 internamente (e quebra com uma
+# proporcao diferente). Usamos os dois 4x maiores que o padrao do librosa
+# (frame_length=2048, hop_length=512) para processar menos quadros por
+# segundo, ~4x mais rapido, mantendo a mesma proporcao.
+FRAME_LENGTH = 8192
+HOP_LENGTH = 2048
 
 
 # Caminho onde o Render disponibiliza "Secret Files" em tempo de execucao.
@@ -94,6 +98,7 @@ def extrair_melodia(caminho_audio: str):
         fmin=librosa.note_to_hz("C2"),
         fmax=librosa.note_to_hz("C6"),
         sr=sr,
+        frame_length=FRAME_LENGTH,
         hop_length=HOP_LENGTH,
     )
     tempo_por_frame = HOP_LENGTH / sr
