@@ -125,9 +125,29 @@ def agrupar_notas(f0, voiced_flag, voiced_prob, tempo_por_frame):
     return eventos
 
 
+def _analisar_e_transpor(caminho_audio: str):
+    """Roda a analise de melodia + transposicao a partir de um arquivo de
+    audio ja em disco. Gerador de eventos de progresso, igual processar_stream."""
+    yield {"tipo": "log", "mensagem": "Audio pronto. Analisando a melodia (pode levar 1-2 minutos)..."}
+    f0, voiced_flag, voiced_prob, tempo_por_frame = extrair_melodia(caminho_audio)
+
+    yield {"tipo": "log", "mensagem": "Agrupando as notas detectadas..."}
+    eventos = agrupar_notas(f0, voiced_flag, voiced_prob, tempo_por_frame)
+
+    if not eventos:
+        yield {"tipo": "erro", "mensagem": "Nao foi possivel detectar uma melodia clara nesse audio."}
+        return
+
+    yield {"tipo": "log", "mensagem": f"{len(eventos)} notas detectadas. Transpondo para Sax Alto em Eb..."}
+    notas_sax = [transpor_para_sax_alto(nota) for nota, _dur in eventos]
+
+    yield {"tipo": "resultado", "notas": notas_sax}
+
+
 def processar_stream(origem: str):
-    """Gerador que emite eventos de progresso conforme processa, e termina
-    emitindo o resultado final (ou um erro). Cada evento e um dict:
+    """Gerador que baixa do YouTube e emite eventos de progresso conforme
+    processa, terminando com o resultado final (ou um erro). Cada evento e
+    um dict:
       {"tipo": "log", "mensagem": "..."}
       {"tipo": "erro", "mensagem": "..."}
       {"tipo": "resultado", "notas": [...]}
@@ -140,17 +160,11 @@ def processar_stream(origem: str):
             yield {"tipo": "erro", "mensagem": str(exc)}
             return
 
-        yield {"tipo": "log", "mensagem": "Audio baixado. Analisando a melodia (pode levar 1-2 minutos)..."}
-        f0, voiced_flag, voiced_prob, tempo_por_frame = extrair_melodia(caminho_audio)
+        yield from _analisar_e_transpor(caminho_audio)
 
-        yield {"tipo": "log", "mensagem": "Agrupando as notas detectadas..."}
-        eventos = agrupar_notas(f0, voiced_flag, voiced_prob, tempo_por_frame)
 
-        if not eventos:
-            yield {"tipo": "erro", "mensagem": "Nao foi possivel detectar uma melodia clara nesse audio."}
-            return
-
-        yield {"tipo": "log", "mensagem": f"{len(eventos)} notas detectadas. Transpondo para Sax Alto em Eb..."}
-        notas_sax = [transpor_para_sax_alto(nota) for nota, _dur in eventos]
-
-        yield {"tipo": "resultado", "notas": notas_sax}
+def processar_arquivo_stream(caminho_audio: str):
+    """Mesmo pipeline de processar_stream, mas a partir de um arquivo de
+    audio que o usuario ja enviou (sem passar pelo download do YouTube).
+    Usado como alternativa quando o YouTube bloqueia o download no servidor."""
+    yield from _analisar_e_transpor(caminho_audio)
