@@ -24,6 +24,13 @@ TRANSPOSE_SEMITONES = 9
 MIN_NOTE_DURATION_S = 0.12   # ignora notas mais curtas que isso (ruido/artefato)
 CONFIDENCE_THRESHOLD = 0.5   # confianca minima do pyin para considerar "voiced"
 
+# Taxa de amostragem reduzida e duracao maxima do audio analisado. O plano
+# gratuito do Render tem so 512MB de RAM, e a analise de pitch (pYIN) consome
+# memoria proporcional ao tamanho do audio - esses limites evitam estourar
+# a memoria disponivel em musicas mais longas.
+TAXA_AMOSTRAGEM = 16000
+DURACAO_MAXIMA_S = 180  # 3 minutos
+
 
 # Caminho onde o Render disponibiliza "Secret Files" em tempo de execucao.
 # Se um arquivo cookies.txt existir ali, usamos ele para autenticar no YouTube
@@ -74,7 +81,12 @@ def baixar_audio(url_ou_busca: str, pasta_destino: str) -> str:
 
 def extrair_melodia(caminho_audio: str):
     """Extrai a linha melodica principal via pYIN (librosa)."""
-    y, sr = librosa.load(caminho_audio, sr=22050, mono=True)
+    y, sr = librosa.load(
+        caminho_audio,
+        sr=TAXA_AMOSTRAGEM,
+        mono=True,
+        duration=DURACAO_MAXIMA_S,
+    )
     f0, voiced_flag, voiced_prob = librosa.pyin(
         y,
         fmin=librosa.note_to_hz("C2"),
