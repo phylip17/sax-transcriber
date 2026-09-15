@@ -87,12 +87,18 @@ def baixar_audio(url_ou_busca: str, pasta_destino: str) -> str:
 
 def extrair_melodia(caminho_audio: str):
     """Extrai a linha melodica principal via pYIN (librosa)."""
-    y, sr = librosa.load(
-        caminho_audio,
-        sr=TAXA_AMOSTRAGEM,
-        mono=True,
-        duration=DURACAO_MAXIMA_S,
-    )
+    # Carrega na taxa nativa do arquivo e corta a duracao manualmente, em vez
+    # de deixar o librosa.load fazer duracao+reamostragem juntos (combinacao
+    # que apresentou um bug de borda com o resamplers padrao 'soxr').
+    y, sr_nativo = librosa.load(caminho_audio, sr=None, mono=True)
+    limite_amostras = int(DURACAO_MAXIMA_S * sr_nativo)
+    y = y[:limite_amostras]
+
+    # Reamostra separadamente, com um metodo baseado em scipy (mais simples
+    # e sem a mesma condicao de borda do soxr, o padrao do librosa).
+    y = librosa.resample(y, orig_sr=sr_nativo, target_sr=TAXA_AMOSTRAGEM, res_type="scipy")
+    sr = TAXA_AMOSTRAGEM
+
     f0, voiced_flag, voiced_prob = librosa.pyin(
         y,
         fmin=librosa.note_to_hz("C2"),
