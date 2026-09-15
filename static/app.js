@@ -24,11 +24,18 @@ const campoLetra = document.getElementById("campoLetra");
 const linhasLetra = document.getElementById("linhasLetra");
 const botaoPdfLetra = document.getElementById("botaoPdfLetra");
 
+const nomeParaSalvar = document.getElementById("nomeParaSalvar");
+const botaoSalvarBiblioteca = document.getElementById("botaoSalvarBiblioteca");
+const buscaBiblioteca = document.getElementById("buscaBiblioteca");
+const listaBiblioteca = document.getElementById("listaBiblioteca");
+
 const caixaErro = document.getElementById("erro");
 
 let notasAtuais = [];
 let frasesAtuais = [];
 let contagensLetra = [];
+
+const CHAVE_BIBLIOTECA = "saxAltoBiblioteca";
 
 abaLink.addEventListener("click", () => {
   abaLink.classList.add("aba--ativa");
@@ -176,6 +183,140 @@ campoLetra.addEventListener("input", () => {
   contagensLetra = [];
   renderizarLetra();
 });
+
+function obterBiblioteca() {
+  try {
+    const bruto = localStorage.getItem(CHAVE_BIBLIOTECA);
+    return bruto ? JSON.parse(bruto) : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function salvarListaBiblioteca(lista) {
+  try {
+    localStorage.setItem(CHAVE_BIBLIOTECA, JSON.stringify(lista));
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function formatarData(isoString) {
+  const data = new Date(isoString);
+  return data.toLocaleDateString("pt-BR") + " " + data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderizarBiblioteca() {
+  const filtro = buscaBiblioteca.value.trim().toLowerCase();
+  const lista = obterBiblioteca()
+    .filter((item) => item.nome.toLowerCase().includes(filtro))
+    .sort((a, b) => new Date(b.criadoEm) - new Date(a.criadoEm));
+
+  listaBiblioteca.innerHTML = "";
+
+  if (!lista.length) {
+    const vazio = document.createElement("p");
+    vazio.className = "biblioteca-vazia";
+    vazio.textContent = filtro ? "Nada encontrado com esse nome." : "Nenhuma música salva ainda.";
+    listaBiblioteca.appendChild(vazio);
+    return;
+  }
+
+  lista.forEach((item) => {
+    const linha = document.createElement("div");
+    linha.className = "biblioteca-item";
+
+    const info = document.createElement("div");
+    info.className = "biblioteca-item__info";
+    const nome = document.createElement("span");
+    nome.className = "biblioteca-item__nome";
+    nome.textContent = item.nome;
+    const meta = document.createElement("span");
+    meta.className = "biblioteca-item__meta";
+    meta.textContent = `${item.notas.length} notas · ${formatarData(item.criadoEm)}`;
+    info.appendChild(nome);
+    info.appendChild(meta);
+
+    const acoes = document.createElement("div");
+    acoes.className = "biblioteca-item__acoes";
+
+    const botaoAbrir = document.createElement("button");
+    botaoAbrir.type = "button";
+    botaoAbrir.className = "botao-secundario";
+    botaoAbrir.textContent = "Abrir";
+    botaoAbrir.addEventListener("click", () => abrirItemBiblioteca(item.id));
+
+    const botaoRemover = document.createElement("button");
+    botaoRemover.type = "button";
+    botaoRemover.className = "botao-secundario";
+    botaoRemover.textContent = "Remover";
+    botaoRemover.addEventListener("click", () => removerItemBiblioteca(item.id));
+
+    acoes.appendChild(botaoAbrir);
+    acoes.appendChild(botaoRemover);
+
+    linha.appendChild(info);
+    linha.appendChild(acoes);
+    listaBiblioteca.appendChild(linha);
+  });
+}
+
+function abrirItemBiblioteca(id) {
+  const item = obterBiblioteca().find((i) => i.id === id);
+  if (!item) return;
+
+  caixaErro.hidden = true;
+  console_.hidden = true;
+
+  mostrarResultado(item.notas, item.frases);
+  campoLetra.value = item.letra || "";
+  contagensLetra = item.contagensLetra || [];
+  renderizarLetra();
+}
+
+function removerItemBiblioteca(id) {
+  const lista = obterBiblioteca().filter((i) => i.id !== id);
+  salvarListaBiblioteca(lista);
+  renderizarBiblioteca();
+}
+
+botaoSalvarBiblioteca.addEventListener("click", () => {
+  const nome = nomeParaSalvar.value.trim();
+  if (!nome) {
+    mostrarErro("Digite um nome antes de salvar na biblioteca.");
+    return;
+  }
+  if (!notasAtuais.length) return;
+
+  const item = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    nome,
+    notas: notasAtuais,
+    frases: frasesAtuais,
+    letra: campoLetra.value,
+    contagensLetra,
+    criadoEm: new Date().toISOString(),
+  };
+
+  const lista = obterBiblioteca();
+  lista.push(item);
+  const salvou = salvarListaBiblioteca(lista);
+
+  if (salvou) {
+    nomeParaSalvar.value = "";
+    const textoOriginal = botaoSalvarBiblioteca.textContent;
+    botaoSalvarBiblioteca.textContent = "Salvo!";
+    setTimeout(() => (botaoSalvarBiblioteca.textContent = textoOriginal), 1500);
+    renderizarBiblioteca();
+  } else {
+    mostrarErro("Não foi possível salvar - o armazenamento do navegador pode estar cheio.");
+  }
+});
+
+buscaBiblioteca.addEventListener("input", renderizarBiblioteca);
+
+renderizarBiblioteca();
 
 botaoPdfLetra.addEventListener("click", async () => {
   const linhas = campoLetra.value.split("\n").filter((l) => l.trim() !== "");
