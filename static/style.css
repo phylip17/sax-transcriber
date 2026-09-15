@@ -88,6 +88,40 @@ body {
   max-width: 46ch;
 }
 
+.abas {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.aba {
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid var(--borda);
+  color: var(--texto-muted);
+  border-radius: 100px;
+  padding: 7px 16px;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 13.5px;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+
+.aba:hover {
+  color: var(--texto);
+}
+
+.aba--ativa {
+  background: rgba(200, 155, 74, 0.12);
+  border-color: var(--brass);
+  color: var(--brass-forte);
+}
+
+.dica-arquivo {
+  font-size: 13px;
+  color: var(--texto-muted);
+  margin: 8px 0 0 0;
+}
+
 .entrada {
   display: flex;
   gap: 10px;
