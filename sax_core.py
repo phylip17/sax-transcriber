@@ -25,11 +25,13 @@ MIN_NOTE_DURATION_S = 0.12   # ignora notas mais curtas que isso (ruido/artefato
 CONFIDENCE_THRESHOLD = 0.5   # confianca minima do pyin para considerar "voiced"
 
 # Taxa de amostragem reduzida e duracao maxima do audio analisado. O plano
-# gratuito do Render tem so 512MB de RAM, e a analise de pitch (pYIN) consome
-# memoria proporcional ao tamanho do audio - esses limites evitam estourar
-# a memoria disponivel em musicas mais longas.
+# gratuito do Render tem so 512MB de RAM e 0.1 CPU, e a analise de pitch
+# (pYIN) e pesada nos dois quesitos - esses limites evitam estourar a
+# memoria/tempo disponiveis, mesmo custando um pouco de precisao ritmica.
 TAXA_AMOSTRAGEM = 16000
-DURACAO_MAXIMA_S = 180  # 3 minutos
+DURACAO_MAXIMA_S = 90    # 1min30 - o suficiente pra maior parte de uma melodia
+HOP_LENGTH = 2048        # padrao do librosa e 512; um valor maior processa
+                         # menos quadros por segundo, ~4x mais rapido
 
 
 # Caminho onde o Render disponibiliza "Secret Files" em tempo de execucao.
@@ -92,9 +94,9 @@ def extrair_melodia(caminho_audio: str):
         fmin=librosa.note_to_hz("C2"),
         fmax=librosa.note_to_hz("C6"),
         sr=sr,
+        hop_length=HOP_LENGTH,
     )
-    hop_length = 512  # padrao do librosa.pyin
-    tempo_por_frame = hop_length / sr
+    tempo_por_frame = HOP_LENGTH / sr
     return f0, voiced_flag, voiced_prob, tempo_por_frame
 
 
@@ -140,7 +142,7 @@ def agrupar_notas(f0, voiced_flag, voiced_prob, tempo_por_frame):
 def _analisar_e_transpor(caminho_audio: str):
     """Roda a analise de melodia + transposicao a partir de um arquivo de
     audio ja em disco. Gerador de eventos de progresso, igual processar_stream."""
-    yield {"tipo": "log", "mensagem": "Audio pronto. Analisando a melodia (pode levar 1-2 minutos)..."}
+    yield {"tipo": "log", "mensagem": "Audio pronto. Analisando a melodia (pode levar alguns minutos no servidor gratuito)..."}
     f0, voiced_flag, voiced_prob, tempo_por_frame = extrair_melodia(caminho_audio)
 
     yield {"tipo": "log", "mensagem": "Agrupando as notas detectadas..."}
