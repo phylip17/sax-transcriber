@@ -19,9 +19,16 @@ const botaoCopiar = document.getElementById("botaoCopiar");
 const botaoBaixar = document.getElementById("botaoBaixar");
 const botaoPdf = document.getElementById("botaoPdf");
 
+const secaoLetra = document.getElementById("secaoLetra");
+const campoLetra = document.getElementById("campoLetra");
+const linhasLetra = document.getElementById("linhasLetra");
+const botaoPdfLetra = document.getElementById("botaoPdfLetra");
+
 const caixaErro = document.getElementById("erro");
 
 let notasAtuais = [];
+let frasesAtuais = [];
+let contagensLetra = [];
 
 abaLink.addEventListener("click", () => {
   abaLink.classList.add("aba--ativa");
@@ -55,8 +62,12 @@ function limparEstado() {
   linhasConsole.innerHTML = "";
   pauta.innerHTML = "";
   notasAtuais = [];
+  frasesAtuais = [];
+  contagensLetra = [];
+  linhasLetra.innerHTML = "";
   caixaErro.hidden = true;
   secaoResultado.hidden = true;
+  secaoLetra.hidden = true;
   console_.hidden = false;
 }
 
@@ -65,8 +76,9 @@ function mostrarErro(mensagem) {
   caixaErro.hidden = false;
 }
 
-function mostrarResultado(notas) {
+function mostrarResultado(notas, frases) {
   notasAtuais = notas;
+  frasesAtuais = frases || [];
   pauta.innerHTML = "";
   notas.forEach((nota) => {
     const chip = document.createElement("span");
@@ -75,7 +87,140 @@ function mostrarResultado(notas) {
     pauta.appendChild(chip);
   });
   secaoResultado.hidden = false;
+  secaoLetra.hidden = false;
+  contagensLetra = [];
+  renderizarLetra();
 }
+
+function distribuirIgual(nLinhas, total) {
+  const base = Math.floor(total / nLinhas);
+  const resto = total % nLinhas;
+  return Array.from({ length: nLinhas }, (_, i) => base + (i < resto ? 1 : 0));
+}
+
+function renderizarLetra() {
+  const linhas = campoLetra.value.split("\n").filter((l) => l.trim() !== "");
+  linhasLetra.innerHTML = "";
+
+  if (!linhas.length || !notasAtuais.length) return;
+
+  if (contagensLetra.length !== linhas.length) {
+    if (frasesAtuais.length === linhas.length) {
+      // As frases detectadas pelas pausas do audio batem com o numero de
+      // linhas da letra - usamos isso como divisao inicial, mais precisa
+      // que so dividir as notas igualmente.
+      contagensLetra = frasesAtuais.map((f) => f.length);
+    } else {
+      contagensLetra = distribuirIgual(linhas.length, notasAtuais.length);
+    }
+  }
+
+  const soma = contagensLetra.reduce((a, b) => a + b, 0);
+  if (soma !== notasAtuais.length && linhas.length) {
+    contagensLetra[contagensLetra.length - 1] += notasAtuais.length - soma;
+  }
+
+  let cursor = 0;
+  linhas.forEach((linhaTexto, i) => {
+    const qtd = Math.max(0, contagensLetra[i] || 0);
+    const grupoNotas = notasAtuais.slice(cursor, cursor + qtd);
+    cursor += qtd;
+
+    const bloco = document.createElement("div");
+    bloco.className = "letra-linha";
+
+    const notasDiv = document.createElement("div");
+    notasDiv.className = "letra-linha__notas";
+    if (grupoNotas.length) {
+      grupoNotas.forEach((nota) => {
+        const chip = document.createElement("span");
+        chip.className = "nota";
+        chip.textContent = nota;
+        notasDiv.appendChild(chip);
+      });
+    } else {
+      const vazio = document.createElement("span");
+      vazio.style.fontSize = "12px";
+      vazio.style.color = "var(--texto-muted)";
+      vazio.textContent = "sem notas nesta linha";
+      notasDiv.appendChild(vazio);
+    }
+
+    const textoDiv = document.createElement("div");
+    textoDiv.className = "letra-linha__texto";
+    textoDiv.textContent = linhaTexto;
+
+    const controleDiv = document.createElement("div");
+    controleDiv.className = "letra-linha__controle";
+    const label = document.createElement("label");
+    label.textContent = "Notas nesta linha:";
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.value = qtd;
+    input.addEventListener("change", (evento) => {
+      contagensLetra[i] = parseInt(evento.target.value, 10) || 0;
+      renderizarLetra();
+    });
+    controleDiv.appendChild(label);
+    controleDiv.appendChild(input);
+
+    bloco.appendChild(notasDiv);
+    bloco.appendChild(textoDiv);
+    bloco.appendChild(controleDiv);
+    linhasLetra.appendChild(bloco);
+  });
+}
+
+campoLetra.addEventListener("input", () => {
+  contagensLetra = [];
+  renderizarLetra();
+});
+
+botaoPdfLetra.addEventListener("click", async () => {
+  const linhas = campoLetra.value.split("\n").filter((l) => l.trim() !== "");
+  if (!linhas.length || !notasAtuais.length) {
+    mostrarErro("Cole a letra e gere as notas antes de baixar o PDF com letra.");
+    return;
+  }
+
+  const textoOriginal = botaoPdfLetra.textContent;
+  botaoPdfLetra.textContent = "Gerando...";
+  botaoPdfLetra.disabled = true;
+
+  try {
+    let cursor = 0;
+    const grupos = linhas.map((linhaTexto, i) => {
+      const qtd = Math.max(0, contagensLetra[i] || 0);
+      const grupoNotas = notasAtuais.slice(cursor, cursor + qtd);
+      cursor += qtd;
+      return { linha: linhaTexto, notas: grupoNotas };
+    });
+
+    const resposta = await fetch("/api/pdf-letra", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ grupos, origem: campoOrigem.value.trim() }),
+    });
+
+    if (!resposta.ok) {
+      throw new Error("Falha ao gerar o PDF com letra");
+    }
+
+    const blob = await resposta.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "notas_com_letra.pdf";
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    mostrarErro("Não foi possível gerar o PDF com letra agora.");
+  } finally {
+    botaoPdfLetra.textContent = textoOriginal;
+    botaoPdfLetra.disabled = false;
+  }
+});
 
 async function processarResposta(resposta) {
   const leitor = resposta.body.getReader();
@@ -99,7 +244,7 @@ async function processarResposta(resposta) {
       } else if (evento_.tipo === "erro") {
         mostrarErro(evento_.mensagem);
       } else if (evento_.tipo === "resultado") {
-        mostrarResultado(evento_.notas);
+        mostrarResultado(evento_.notas, evento_.frases);
       }
     }
   }
