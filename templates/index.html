@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+  <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -59,6 +59,10 @@
         </div>
       </div>
       <div id="pauta" class="pauta"></div>
+      <div class="salvar-biblioteca">
+        <input type="text" id="nomeParaSalvar" placeholder="Nome para salvar na biblioteca (ex: nome da música)" autocomplete="off">
+        <button id="botaoSalvarBiblioteca" type="button" class="botao-secundario">Salvar na biblioteca</button>
+      </div>
     </section>
 
     <section id="secaoLetra" class="letra-secao" hidden>
@@ -72,6 +76,16 @@
       <div class="resultado__acoes">
         <button id="botaoPdfLetra" type="button" class="botao-secundario">Baixar PDF com letra</button>
       </div>
+    </section>
+
+    <section id="secaoBiblioteca" class="biblioteca-secao">
+      <h2>Minha biblioteca (salva neste navegador)</h2>
+      <p class="letra-dica">
+        Guardada só no seu aparelho — funciona sem internet depois de salva,
+        mesmo que o servidor esteja fora do ar.
+      </p>
+      <input type="text" id="buscaBiblioteca" class="letra-textarea" placeholder="Buscar por nome..." autocomplete="off">
+      <div id="listaBiblioteca" class="biblioteca-lista"></div>
     </section>
 
     <p id="erro" class="erro" hidden></p>
