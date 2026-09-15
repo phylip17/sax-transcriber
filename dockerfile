@@ -1,9 +1,11 @@
 # Imagem base enxuta com Python
 FROM python:3.11-slim
 
-# FFmpeg e necessario para o yt-dlp extrair audio e para o librosa ler o arquivo
+# FFmpeg e necessario para o yt-dlp extrair audio e para o librosa ler o arquivo.
+# Node.js e necessario para o yt-dlp resolver desafios em JavaScript que o
+# YouTube passou a exigir para liberar o link real do audio.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get install -y --no-install-recommends ffmpeg nodejs && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
