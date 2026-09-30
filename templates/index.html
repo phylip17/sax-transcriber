@@ -1,4 +1,4 @@
-  <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;1,9..144,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/vexflow@4.2.2/build/cjs/vexflow.js"></script>
 </head>
 <body>
 
@@ -58,7 +59,58 @@
           <button id="botaoPdf" type="button" class="botao-secundario">Baixar PDF</button>
         </div>
       </div>
+      <p id="tonalidadeEstimada" class="tonalidade" hidden></p>
       <div id="pauta" class="pauta"></div>
+      <p class="legenda-notas">
+        <span class="legenda-item"><span class="legenda-cor legenda-cor--baixa"></span> confiança baixa, confira de ouvido</span>
+        <span class="legenda-item"><span class="legenda-cor legenda-cor--fora"></span> fora do alcance comum do sax</span>
+        <span class="legenda-item">toque numa nota para ouvir o som</span>
+      </p>
+
+      <div class="pauta-visual-caixa">
+        <div class="pauta-visual-cabecalho">
+          <span>Pauta (duração igual para cada nota — sem indicação de ritmo)</span>
+        </div>
+        <div id="pautaVisual" class="pauta-visual"></div>
+      </div>
+
+      <div id="painelDedilhado" class="painel-dedilhado" hidden>
+        <div class="painel-dedilhado__nota">
+          <span id="dedilhadoNotaNome"></span>
+          <button id="botaoTocarNota" type="button" class="botao-secundario">Tocar nota</button>
+        </div>
+        <p class="painel-dedilhado__aviso">
+          Não geramos diagrama de dedilhado aqui — para não arriscar te
+          ensinar uma posição errada, confira o dedilhado certo no método do
+          seu curso ou com seu professor. Use o som acima pra comparar a
+          altura com o que você está tocando.
+        </p>
+      </div>
+
+      <div class="pratica-caixa">
+        <h3>Modo prática</h3>
+        <div class="pratica-controles">
+          <button id="botaoPraticar" type="button" class="botao-secundario">▶ Tocar sequência</button>
+          <label class="pratica-label">
+            Velocidade:
+            <select id="velocidadePratica">
+              <option value="900">Bem devagar</option>
+              <option value="550" selected>Devagar</option>
+              <option value="350">Moderado</option>
+              <option value="200">Normal</option>
+            </select>
+          </label>
+        </div>
+        <h3>Metrônomo</h3>
+        <div class="pratica-controles">
+          <button id="botaoMetronomo" type="button" class="botao-secundario">▶ Iniciar</button>
+          <label class="pratica-label">
+            BPM:
+            <input type="number" id="bpmMetronomo" value="80" min="30" max="240" style="width:64px">
+          </label>
+        </div>
+      </div>
+
       <div class="salvar-biblioteca">
         <input type="text" id="nomeParaSalvar" placeholder="Nome para salvar na biblioteca (ex: nome da música)" autocomplete="off">
         <button id="botaoSalvarBiblioteca" type="button" class="botao-secundario">Salvar na biblioteca</button>
