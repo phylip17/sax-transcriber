@@ -118,15 +118,28 @@ def transpor_para_sax_alto(nota_concertante: str) -> str:
 
 LIMIAR_PAUSA_FRASE_S = 0.4  # pausas a partir disso marcam quebra de frase/linha
 
+# Alcance escrito "normal" do sax alto (do Bb3 grave ao F6 agudo, sem contar
+# o registro altissimo, que exige tecnica avancada e dedilhados alternativos).
+ALCANCE_MIN_MIDI = librosa.note_to_midi("Bb3")
+ALCANCE_MAX_MIDI = librosa.note_to_midi("F6")
+
+# Perfis de Krumhansl-Schmuckler para estimar a tonalidade a partir de quanto
+# tempo cada classe de nota (Do, Do#, Re...) soa na melodia.
+PERFIL_MAIOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
+PERFIL_MENOR = [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
+NOMES_NOTAS_PT = ["Do", "Do#", "Re", "Re#", "Mi", "Fa", "Fa#", "Sol", "Sol#", "La", "La#", "Si"]
+
 
 def _segmentar(f0, voiced_flag, voiced_prob, tempo_por_frame):
     """Converte a serie de frequencias quadro a quadro numa lista de
-    segmentos (nota OU silencio), cada um com seu valor e duracao.
-    Diferente de uma lista so de notas, aqui guardamos tambem as pausas -
-    sao elas que usamos depois para detectar onde uma frase termina."""
+    segmentos (nota OU silencio), cada um com seu valor, duracao e a
+    confianca media do pYIN nesse trecho. Diferente de uma lista so de
+    notas, aqui guardamos tambem as pausas - sao elas que usamos depois
+    para detectar onde uma frase termina."""
     segmentos = []
     valor_atual = None
     inicio_atual = 0.0
+    probs_atuais = []
 
     for i, (freq, voz, prob) in enumerate(zip(f0, voiced_flag, voiced_prob)):
         tempo = i * tempo_por_frame
@@ -137,22 +150,65 @@ def _segmentar(f0, voiced_flag, voiced_prob, tempo_por_frame):
             valor = None
 
         if valor != valor_atual:
-            segmentos.append({"valor": valor_atual, "duracao": tempo - inicio_atual})
+            confianca_media = float(np.mean(probs_atuais)) if probs_atuais else 0.0
+            segmentos.append({"valor": valor_atual, "duracao": tempo - inicio_atual, "confianca": confianca_media})
             valor_atual = valor
             inicio_atual = tempo
+            probs_atuais = []
 
-    segmentos.append({"valor": valor_atual, "duracao": (len(f0) * tempo_por_frame) - inicio_atual})
+        probs_atuais.append(float(prob))
+
+    confianca_media = float(np.mean(probs_atuais)) if probs_atuais else 0.0
+    segmentos.append({
+        "valor": valor_atual,
+        "duracao": (len(f0) * tempo_por_frame) - inicio_atual,
+        "confianca": confianca_media,
+    })
     return segmentos
 
 
 def agrupar_notas(segmentos):
     """Filtra os segmentos, mantendo so as notas (descarta silencios e
-    notas curtas demais / ruido). Retorna lista de (nota, duracao)."""
+    notas curtas demais / ruido). Retorna lista de (nota, duracao, confianca)."""
     return [
-        (s["valor"], s["duracao"])
+        (s["valor"], s["duracao"], s["confianca"])
         for s in segmentos
         if s["valor"] is not None and s["duracao"] >= MIN_NOTE_DURATION_S
     ]
+
+
+def verificar_alcance(nota: str) -> bool:
+    """Retorna True se a nota (ja transposta, escrita para o sax) estiver
+    fora do alcance normal do instrumento (Bb3 a F6) - pode ser erro de
+    deteccao ou uma nota de registro altissimo, que exige tecnica avancada."""
+    midi = librosa.note_to_midi(nota)
+    return midi < ALCANCE_MIN_MIDI or midi > ALCANCE_MAX_MIDI
+
+
+def estimar_tonalidade(eventos) -> str:
+    """Estima a tonalidade da melodia usando o algoritmo de
+    Krumhansl-Schmuckler: correlaciona quanto tempo cada uma das 12 classes
+    de nota soa com os perfis tipicos de cada tonalidade maior/menor.
+    Recebe eventos (nota, duracao, confianca) EM CONCERTO (antes de
+    transpor), para refletir a tonalidade real da musica."""
+    pesos = np.zeros(12)
+    for nota, duracao, _confianca in eventos:
+        classe = librosa.note_to_midi(nota) % 12
+        pesos[classe] += duracao
+
+    if not pesos.any():
+        return None
+
+    melhor = None
+    for tonica in range(12):
+        for modo, perfil in (("maior", PERFIL_MAIOR), ("menor", PERFIL_MENOR)):
+            perfil_rotacionado = perfil[-tonica:] + perfil[:-tonica]
+            correlacao = np.corrcoef(pesos, perfil_rotacionado)[0, 1]
+            if melhor is None or correlacao > melhor[0]:
+                melhor = (correlacao, tonica, modo)
+
+    _correlacao, tonica, modo = melhor
+    return f"{NOMES_NOTAS_PT[tonica]} {modo}"
 
 
 def agrupar_em_frases(segmentos):
@@ -193,12 +249,23 @@ def _analisar_e_transpor(caminho_audio: str):
         return
 
     yield {"tipo": "log", "mensagem": f"{len(eventos)} notas detectadas. Transpondo para Sax Alto em Eb..."}
-    notas_sax = [transpor_para_sax_alto(nota) for nota, _dur in eventos]
+    notas_sax = [transpor_para_sax_alto(nota) for nota, _dur, _conf in eventos]
+    confiancas = [round(confianca, 2) for _nota, _dur, confianca in eventos]
+    fora_do_alcance = [verificar_alcance(nota) for nota in notas_sax]
 
     frases_concertantes = agrupar_em_frases(segmentos)
     frases_sax = [[transpor_para_sax_alto(nota) for nota in frase] for frase in frases_concertantes]
 
-    yield {"tipo": "resultado", "notas": notas_sax, "frases": frases_sax}
+    tonalidade = estimar_tonalidade(eventos)
+
+    yield {
+        "tipo": "resultado",
+        "notas": notas_sax,
+        "frases": frases_sax,
+        "confiancas": confiancas,
+        "fora_do_alcance": fora_do_alcance,
+        "tonalidade": tonalidade,
+    }
 
 
 def processar_stream(origem: str):
