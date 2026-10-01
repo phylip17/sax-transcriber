@@ -40,6 +40,13 @@ const cifraResultadoCaixa = document.getElementById("cifraResultadoCaixa");
 const cifraResultadoTexto = document.getElementById("cifraResultadoTexto");
 const botaoCopiarCifra = document.getElementById("botaoCopiarCifra");
 const botaoBaixarCifra = document.getElementById("botaoBaixarCifra");
+
+const nomeParaSalvarCifra = document.getElementById("nomeParaSalvarCifra");
+const botaoSalvarCifra = document.getElementById("botaoSalvarCifra");
+const buscaCifras = document.getElementById("buscaCifras");
+const listaCifras = document.getElementById("listaCifras");
+
+const CHAVE_BIBLIOTECA_CIFRAS = "saxAltoBibliotecaCifras";
 const botaoTocarNota = document.getElementById("botaoTocarNota");
 
 const botaoPraticar = document.getElementById("botaoPraticar");
@@ -844,3 +851,119 @@ botaoBaixarCifra.addEventListener("click", () => {
   link.click();
   URL.revokeObjectURL(url);
 });
+
+// ---- Biblioteca de cifras salvas (localStorage, separada da biblioteca de musicas) ----
+function obterBibliotecaCifras() {
+  try {
+    const bruto = localStorage.getItem(CHAVE_BIBLIOTECA_CIFRAS);
+    return bruto ? JSON.parse(bruto) : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function salvarListaCifras(lista) {
+  try {
+    localStorage.setItem(CHAVE_BIBLIOTECA_CIFRAS, JSON.stringify(lista));
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
+function renderizarBibliotecaCifras() {
+  const filtro = buscaCifras.value.trim().toLowerCase();
+  const lista = obterBibliotecaCifras()
+    .filter((item) => item.nome.toLowerCase().includes(filtro))
+    .sort((a, b) => new Date(b.criadoEm) - new Date(a.criadoEm));
+
+  listaCifras.innerHTML = "";
+
+  if (!lista.length) {
+    const vazio = document.createElement("p");
+    vazio.className = "biblioteca-vazia";
+    vazio.textContent = filtro ? "Nada encontrado com esse nome." : "Nenhuma cifra salva ainda.";
+    listaCifras.appendChild(vazio);
+    return;
+  }
+
+  lista.forEach((item) => {
+    const linha = document.createElement("div");
+    linha.className = "biblioteca-item";
+
+    const info = document.createElement("div");
+    info.className = "biblioteca-item__info";
+    const nome = document.createElement("span");
+    nome.className = "biblioteca-item__nome";
+    nome.textContent = item.nome;
+    const meta = document.createElement("span");
+    meta.className = "biblioteca-item__meta";
+    meta.textContent = formatarData(item.criadoEm);
+    info.appendChild(nome);
+    info.appendChild(meta);
+
+    const acoes = document.createElement("div");
+    acoes.className = "biblioteca-item__acoes";
+
+    const botaoAbrir = document.createElement("button");
+    botaoAbrir.type = "button";
+    botaoAbrir.className = "botao-secundario";
+    botaoAbrir.textContent = "Abrir";
+    botaoAbrir.addEventListener("click", () => {
+      campoCifraOriginal.value = item.cifraOriginal;
+      cifraResultadoTexto.textContent = item.cifraTransposta;
+      cifraResultadoCaixa.hidden = false;
+      cifraResultadoCaixa.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+
+    const botaoRemover = document.createElement("button");
+    botaoRemover.type = "button";
+    botaoRemover.className = "botao-secundario";
+    botaoRemover.textContent = "Remover";
+    botaoRemover.addEventListener("click", () => {
+      const lista2 = obterBibliotecaCifras().filter((i) => i.id !== item.id);
+      salvarListaCifras(lista2);
+      renderizarBibliotecaCifras();
+    });
+
+    acoes.appendChild(botaoAbrir);
+    acoes.appendChild(botaoRemover);
+    linha.appendChild(info);
+    linha.appendChild(acoes);
+    listaCifras.appendChild(linha);
+  });
+}
+
+botaoSalvarCifra.addEventListener("click", () => {
+  const nome = nomeParaSalvarCifra.value.trim();
+  if (!nome) {
+    mostrarErro("Digite um nome antes de salvar a cifra.");
+    return;
+  }
+
+  const item = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    nome,
+    cifraOriginal: campoCifraOriginal.value,
+    cifraTransposta: cifraResultadoTexto.textContent,
+    criadoEm: new Date().toISOString(),
+  };
+
+  const lista = obterBibliotecaCifras();
+  lista.push(item);
+  const salvou = salvarListaCifras(lista);
+
+  if (salvou) {
+    nomeParaSalvarCifra.value = "";
+    const textoOriginal = botaoSalvarCifra.textContent;
+    botaoSalvarCifra.textContent = "Salva!";
+    setTimeout(() => (botaoSalvarCifra.textContent = textoOriginal), 1500);
+    renderizarBibliotecaCifras();
+  } else {
+    mostrarErro("Não foi possível salvar - o armazenamento do navegador pode estar cheio.");
+  }
+});
+
+buscaCifras.addEventListener("input", renderizarBibliotecaCifras);
+
+renderizarBibliotecaCifras();
