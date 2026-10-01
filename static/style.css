@@ -581,6 +581,16 @@ body {
   margin: 0;
 }
 
+.cifra-acorde {
+  color: var(--brass-forte);
+  font-weight: 600;
+}
+
+.cifra-acorde-notas {
+  color: #7fb8a0;
+  font-size: 12px;
+}
+
 .cifra-resultado__texto {
   white-space: pre-wrap;
   word-wrap: break-word;
