@@ -780,8 +780,10 @@ const FORMULAS_ACORDE = {
 };
 
 // Reconhece um token de acorde: raiz (A-G, # ou b opcional) + qualidade
-// opcional (m, 7, maj7, sus4, dim, aug, add9 etc.) + baixo opcional (/D).
-const REGEX_ACORDE = /^([A-G])(#|b)?((?:maj|dim|sus|add|aug)\d{0,2}|m(?:aj)?\d{0,2}|\d{1,2}|°|\+)?(\/([A-G])(#|b)?)?$/;
+// opcional (m, 7, maj7, 7M/M7 - notacao brasileira -, sus4, dim, aug, add9
+// etc.) + tensao entre parenteses opcional (ex: "(2)", "(9)", "(add9)") +
+// baixo opcional (/D).
+const REGEX_ACORDE = /^([A-G])(#|b)?((?:maj|dim|sus|add|aug)\d{0,2}|m(?:aj)?\d{0,2}|\d{0,2}M\d{0,2}|\d{1,2}|°|\+)?(\([#b]?(?:add)?\d{1,2}\))?(\/([A-G])(#|b)?)?$/;
 
 function semitomDaNota(letra, acidente) {
   const nome = ENARMONICOS_CIFRA[letra + (acidente || "")] || (letra + (acidente || ""));
@@ -791,6 +793,8 @@ function semitomDaNota(letra, acidente) {
 
 function normalizarQualidade(q) {
   if (!q) return "";
+  if (/^M$/.test(q)) return ""; // "M" sozinho = maior simples
+  if (/^\d{0,2}M\d{0,2}$/.test(q)) return "maj7"; // 7M, M7, M9... = maior com setima
   if (/^maj\d*$/.test(q)) return "maj7";
   if (/^m(?:aj)?\d*$/.test(q) && q !== "maj") {
     const numero = q.replace(/^m/, "");
@@ -823,10 +827,11 @@ function transporAcordeComNotas(token) {
   const novoSemitomRaiz = (semitomRaiz + TRANSPOSE_SEMITONES_CIFRA) % 12;
   const novaRaiz = NOTAS_CIFRA[novoSemitomRaiz];
   const qualidade = m[3] || "";
-  let simbolo = novaRaiz + qualidade;
+  const parentese = m[4] || ""; // tensao tipo "(2)" - mantida como esta, nao entra na formula das notas
+  let simbolo = novaRaiz + qualidade + parentese;
 
-  if (m[5]) {
-    const semitomBaixo = semitomDaNota(m[5], m[6]);
+  if (m[6]) {
+    const semitomBaixo = semitomDaNota(m[6], m[7]);
     const novoBaixo = NOTAS_CIFRA[(semitomBaixo + TRANSPOSE_SEMITONES_CIFRA) % 12];
     simbolo += "/" + novoBaixo;
   }
