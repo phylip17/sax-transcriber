@@ -555,6 +555,61 @@ body {
   font-size: 13.5px;
 }
 
+.cifra-secao {
+  margin-top: 26px;
+  padding-top: 22px;
+  border-top: 1px solid var(--borda);
+}
+
+.cifra-secao h2 {
+  font-family: "Fraunces", serif;
+  font-size: 19px;
+  font-weight: 600;
+  margin: 0 0 6px 0;
+}
+
+.cifra-resultado {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--borda);
+}
+
+.cifra-resultado h3 {
+  font-family: "Fraunces", serif;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.cifra-resultado__texto {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background: #14171c;
+  border: 1px solid var(--borda);
+  border-radius: 7px;
+  padding: 14px 16px;
+  color: var(--texto);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 13.5px;
+  line-height: 1.6;
+  margin-top: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.biblioteca-cifras-lista-caixa {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--borda);
+}
+
+.biblioteca-cifras-lista-caixa h3 {
+  font-family: "Fraunces", serif;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 10px 0;
+}
+
 .biblioteca-secao {
   margin-top: 26px;
   padding-top: 22px;
