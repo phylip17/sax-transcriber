@@ -755,9 +755,29 @@ botaoMetronomo.addEventListener("click", () => {
   metronomoIntervalId = setInterval(tocarClickMetronomo, intervaloMs);
 });
 
-// ---- Transpor cifra (so os acordes) para Sax Alto em Eb ----
+// ---- Transpor cifra (acordes + notas que formam cada acorde) para Sax Alto em Eb ----
 const NOTAS_CIFRA = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const ENARMONICOS_CIFRA = { Db: "C#", Eb: "D#", Gb: "F#", Ab: "G#", Bb: "A#" };
+const TRANSPOSE_SEMITONES_CIFRA = 9; // mesma logica das notas: sax alto Eb = +9 semitons
+
+// Formulas de acorde (semitons a partir da fundamental) - cobre os tipos
+// mais comuns. Tipos nao listados caem no fallback (maior ou menor simples,
+// dependendo se a qualidade comeca com "m").
+const FORMULAS_ACORDE = {
+  "": [0, 4, 7],
+  "m": [0, 3, 7],
+  "7": [0, 4, 7, 10],
+  "maj7": [0, 4, 7, 11],
+  "m7": [0, 3, 7, 10],
+  "6": [0, 4, 7, 9],
+  "m6": [0, 3, 7, 9],
+  "dim": [0, 3, 6],
+  "dim7": [0, 3, 6, 9],
+  "sus2": [0, 2, 7],
+  "sus4": [0, 5, 7],
+  "add9": [0, 4, 7, 2],
+  "aug": [0, 4, 8],
+};
 
 // Reconhece um token de acorde: raiz (A-G, # ou b opcional) + qualidade
 // opcional (m, 7, maj7, sus4, dim, aug, add9 etc.) + baixo opcional (/D).
@@ -769,24 +789,67 @@ function semitomDaNota(letra, acidente) {
   return indice === -1 ? NOTAS_CIFRA.indexOf(letra) : indice;
 }
 
-function transporAcorde(token) {
+function normalizarQualidade(q) {
+  if (!q) return "";
+  if (/^maj\d*$/.test(q)) return "maj7";
+  if (/^m(?:aj)?\d*$/.test(q) && q !== "maj") {
+    const numero = q.replace(/^m/, "");
+    if (!numero) return "m";
+    if (numero === "6") return "m6";
+    return "m7";
+  }
+  if (/^\d+$/.test(q)) return q === "6" ? "6" : "7";
+  if (q.startsWith("dim")) return q === "dim" ? "dim" : "dim7";
+  if (q.startsWith("sus")) return q;
+  if (q.startsWith("add")) return "add9";
+  if (q === "aug" || q === "+") return "aug";
+  if (q === "°") return "dim";
+  return q;
+}
+
+function notasDoAcorde(raizIdx, qualidade) {
+  const chave = normalizarQualidade(qualidade);
+  const formula =
+    FORMULAS_ACORDE[chave] ||
+    (qualidade.startsWith("m") && !qualidade.startsWith("maj") ? FORMULAS_ACORDE["m"] : FORMULAS_ACORDE[""]);
+  return formula.map((intervalo) => NOTAS_CIFRA[(raizIdx + intervalo) % 12]);
+}
+
+function transporAcordeComNotas(token) {
   const m = token.match(REGEX_ACORDE);
   if (!m) return null;
 
   const semitomRaiz = semitomDaNota(m[1], m[2]);
-  const novaRaiz = NOTAS_CIFRA[(semitomRaiz + TRANSPOSE_SEMITONES_CIFRA) % 12];
-  let resultado = novaRaiz + (m[3] || "");
+  const novoSemitomRaiz = (semitomRaiz + TRANSPOSE_SEMITONES_CIFRA) % 12;
+  const novaRaiz = NOTAS_CIFRA[novoSemitomRaiz];
+  const qualidade = m[3] || "";
+  let simbolo = novaRaiz + qualidade;
 
   if (m[5]) {
     const semitomBaixo = semitomDaNota(m[5], m[6]);
     const novoBaixo = NOTAS_CIFRA[(semitomBaixo + TRANSPOSE_SEMITONES_CIFRA) % 12];
-    resultado += "/" + novoBaixo;
+    simbolo += "/" + novoBaixo;
   }
 
-  return resultado;
+  const notas = notasDoAcorde(novoSemitomRaiz, qualidade);
+  return { simbolo, notas };
 }
 
-const TRANSPOSE_SEMITONES_CIFRA = 9; // mesma logica das notas: sax alto Eb = +9 semitons
+function escapeHtml(texto) {
+  const div = document.createElement("div");
+  div.textContent = texto;
+  return div.innerHTML;
+}
+
+function formatarAcordeTransposto(token, modo) {
+  const resultado = transporAcordeComNotas(token);
+  if (!resultado) return null;
+  const notasTexto = resultado.notas.join("-");
+  if (modo === "html") {
+    return `<span class="cifra-acorde">${resultado.simbolo}</span><span class="cifra-acorde-notas">[${notasTexto}]</span>`;
+  }
+  return `${resultado.simbolo}[${notasTexto}]`;
+}
 
 function linhaEhSoAcordes(linha) {
   const tokens = linha.trim().split(/\s+/).filter(Boolean);
@@ -794,31 +857,35 @@ function linhaEhSoAcordes(linha) {
   return tokens.every((t) => REGEX_ACORDE.test(t));
 }
 
-function transporLinhaDeAcordes(linha) {
+function transporLinhaDeAcordes(linha, modo) {
   // Preserva o espacamento original: substitui cada token de acorde no
   // lugar, mantendo os espacos em branco ao redor intactos.
-  return linha.replace(/\S+/g, (token) => transporAcorde(token) || token);
+  const base = modo === "html" ? escapeHtml(linha) : linha;
+  return base.replace(/\S+/g, (token) => formatarAcordeTransposto(token, modo) || token);
 }
 
-function transporLinhaComColchetes(linha) {
-  // Formato [C]letra[G]letra - transpoe so o que esta dentro dos colchetes.
-  return linha.replace(/\[([^\]]+)\]/g, (match, dentro) => {
-    const transposto = transporAcorde(dentro.trim());
-    return transposto ? `[${transposto}]` : match;
+function transporLinhaComColchetes(linha, modo) {
+  // Formato [C]letra[G]letra - transpoe so o que esta dentro dos colchetes,
+  // e acrescenta um segundo colchete logo depois com as notas do acorde.
+  const base = modo === "html" ? escapeHtml(linha) : linha;
+  return base.replace(/\[([^\]]+)\]/g, (match, dentro) => {
+    const formatado = formatarAcordeTransposto(dentro.trim(), modo);
+    if (!formatado) return match;
+    return modo === "html" ? `[${formatado}]` : `[${formatado}]`;
   });
 }
 
-function transporCifraCompleta(texto) {
+function transporCifraCompleta(texto, modo) {
   return texto
     .split("\n")
     .map((linha) => {
       if (/\[[^\]]+\]/.test(linha)) {
-        return transporLinhaComColchetes(linha);
+        return transporLinhaComColchetes(linha, modo);
       }
       if (linhaEhSoAcordes(linha)) {
-        return transporLinhaDeAcordes(linha);
+        return transporLinhaDeAcordes(linha, modo);
       }
-      return linha; // linha de letra normal - nao mexe
+      return modo === "html" ? escapeHtml(linha) : linha; // linha de letra normal - nao mexe no texto
     })
     .join("\n");
 }
@@ -830,20 +897,23 @@ botaoTransporCifra.addEventListener("click", () => {
     return;
   }
 
-  const transposta = transporCifraCompleta(original);
-  cifraResultadoTexto.textContent = transposta;
+  const textoPlano = transporCifraCompleta(original, "texto");
+  const html = transporCifraCompleta(original, "html");
+  cifraResultadoTexto.innerHTML = html;
+  cifraResultadoTexto.dataset.textoPlano = textoPlano;
   cifraResultadoCaixa.hidden = false;
 });
 
 botaoCopiarCifra.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(cifraResultadoTexto.textContent);
+  await navigator.clipboard.writeText(cifraResultadoTexto.dataset.textoPlano || cifraResultadoTexto.textContent);
   const textoOriginal = botaoCopiarCifra.textContent;
   botaoCopiarCifra.textContent = "Copiado!";
   setTimeout(() => (botaoCopiarCifra.textContent = textoOriginal), 1500);
 });
 
 botaoBaixarCifra.addEventListener("click", () => {
-  const blob = new Blob([cifraResultadoTexto.textContent], { type: "text/plain;charset=utf-8" });
+  const conteudo = cifraResultadoTexto.dataset.textoPlano || cifraResultadoTexto.textContent;
+  const blob = new Blob([conteudo], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -911,7 +981,8 @@ function renderizarBibliotecaCifras() {
     botaoAbrir.textContent = "Abrir";
     botaoAbrir.addEventListener("click", () => {
       campoCifraOriginal.value = item.cifraOriginal;
-      cifraResultadoTexto.textContent = item.cifraTransposta;
+      cifraResultadoTexto.innerHTML = transporCifraCompleta(item.cifraOriginal, "html");
+      cifraResultadoTexto.dataset.textoPlano = item.cifraTransposta;
       cifraResultadoCaixa.hidden = false;
       cifraResultadoCaixa.scrollIntoView({ behavior: "smooth", block: "start" });
     });
@@ -945,7 +1016,7 @@ botaoSalvarCifra.addEventListener("click", () => {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
     nome,
     cifraOriginal: campoCifraOriginal.value,
-    cifraTransposta: cifraResultadoTexto.textContent,
+    cifraTransposta: cifraResultadoTexto.dataset.textoPlano || cifraResultadoTexto.textContent,
     criadoEm: new Date().toISOString(),
   };
 
