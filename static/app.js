@@ -33,6 +33,13 @@ const tonalidadeEstimada = document.getElementById("tonalidadeEstimada");
 const pautaVisual = document.getElementById("pautaVisual");
 const painelDedilhado = document.getElementById("painelDedilhado");
 const dedilhadoNotaNome = document.getElementById("dedilhadoNotaNome");
+
+const campoCifraOriginal = document.getElementById("campoCifraOriginal");
+const botaoTransporCifra = document.getElementById("botaoTransporCifra");
+const cifraResultadoCaixa = document.getElementById("cifraResultadoCaixa");
+const cifraResultadoTexto = document.getElementById("cifraResultadoTexto");
+const botaoCopiarCifra = document.getElementById("botaoCopiarCifra");
+const botaoBaixarCifra = document.getElementById("botaoBaixarCifra");
 const botaoTocarNota = document.getElementById("botaoTocarNota");
 
 const botaoPraticar = document.getElementById("botaoPraticar");
@@ -739,4 +746,101 @@ botaoMetronomo.addEventListener("click", () => {
   botaoMetronomo.textContent = "■ Parar";
   tocarClickMetronomo();
   metronomoIntervalId = setInterval(tocarClickMetronomo, intervaloMs);
+});
+
+// ---- Transpor cifra (so os acordes) para Sax Alto em Eb ----
+const NOTAS_CIFRA = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const ENARMONICOS_CIFRA = { Db: "C#", Eb: "D#", Gb: "F#", Ab: "G#", Bb: "A#" };
+
+// Reconhece um token de acorde: raiz (A-G, # ou b opcional) + qualidade
+// opcional (m, 7, maj7, sus4, dim, aug, add9 etc.) + baixo opcional (/D).
+const REGEX_ACORDE = /^([A-G])(#|b)?((?:maj|dim|sus|add|aug)\d{0,2}|m(?:aj)?\d{0,2}|\d{1,2}|°|\+)?(\/([A-G])(#|b)?)?$/;
+
+function semitomDaNota(letra, acidente) {
+  const nome = ENARMONICOS_CIFRA[letra + (acidente || "")] || (letra + (acidente || ""));
+  const indice = NOTAS_CIFRA.indexOf(nome);
+  return indice === -1 ? NOTAS_CIFRA.indexOf(letra) : indice;
+}
+
+function transporAcorde(token) {
+  const m = token.match(REGEX_ACORDE);
+  if (!m) return null;
+
+  const semitomRaiz = semitomDaNota(m[1], m[2]);
+  const novaRaiz = NOTAS_CIFRA[(semitomRaiz + TRANSPOSE_SEMITONES_CIFRA) % 12];
+  let resultado = novaRaiz + (m[3] || "");
+
+  if (m[5]) {
+    const semitomBaixo = semitomDaNota(m[5], m[6]);
+    const novoBaixo = NOTAS_CIFRA[(semitomBaixo + TRANSPOSE_SEMITONES_CIFRA) % 12];
+    resultado += "/" + novoBaixo;
+  }
+
+  return resultado;
+}
+
+const TRANSPOSE_SEMITONES_CIFRA = 9; // mesma logica das notas: sax alto Eb = +9 semitons
+
+function linhaEhSoAcordes(linha) {
+  const tokens = linha.trim().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return false;
+  return tokens.every((t) => REGEX_ACORDE.test(t));
+}
+
+function transporLinhaDeAcordes(linha) {
+  // Preserva o espacamento original: substitui cada token de acorde no
+  // lugar, mantendo os espacos em branco ao redor intactos.
+  return linha.replace(/\S+/g, (token) => transporAcorde(token) || token);
+}
+
+function transporLinhaComColchetes(linha) {
+  // Formato [C]letra[G]letra - transpoe so o que esta dentro dos colchetes.
+  return linha.replace(/\[([^\]]+)\]/g, (match, dentro) => {
+    const transposto = transporAcorde(dentro.trim());
+    return transposto ? `[${transposto}]` : match;
+  });
+}
+
+function transporCifraCompleta(texto) {
+  return texto
+    .split("\n")
+    .map((linha) => {
+      if (/\[[^\]]+\]/.test(linha)) {
+        return transporLinhaComColchetes(linha);
+      }
+      if (linhaEhSoAcordes(linha)) {
+        return transporLinhaDeAcordes(linha);
+      }
+      return linha; // linha de letra normal - nao mexe
+    })
+    .join("\n");
+}
+
+botaoTransporCifra.addEventListener("click", () => {
+  const original = campoCifraOriginal.value;
+  if (!original.trim()) {
+    mostrarErro("Cole uma cifra antes de transpor.");
+    return;
+  }
+
+  const transposta = transporCifraCompleta(original);
+  cifraResultadoTexto.textContent = transposta;
+  cifraResultadoCaixa.hidden = false;
+});
+
+botaoCopiarCifra.addEventListener("click", async () => {
+  await navigator.clipboard.writeText(cifraResultadoTexto.textContent);
+  const textoOriginal = botaoCopiarCifra.textContent;
+  botaoCopiarCifra.textContent = "Copiado!";
+  setTimeout(() => (botaoCopiarCifra.textContent = textoOriginal), 1500);
+});
+
+botaoBaixarCifra.addEventListener("click", () => {
+  const blob = new Blob([cifraResultadoTexto.textContent], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "cifra_sax_alto.txt";
+  link.click();
+  URL.revokeObjectURL(url);
 });
