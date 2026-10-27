@@ -25,8 +25,12 @@ import traceback
 from flask import Flask, Response, render_template, request
 from werkzeug.utils import secure_filename
 
+import re
+import unicodedata
+
 import sax_core
 import pdf_export
+import render_partitura
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 60 * 1024 * 1024  # 60 MB por upload
@@ -44,13 +48,14 @@ def index():
 def transcrever():
     dados = request.get_json(force=True, silent=True) or {}
     origem = (dados.get("origem") or "").strip()
+    separar = bool(dados.get("separar_voz", True))
 
     def gerar():
         if not origem:
             yield json.dumps({"tipo": "erro", "mensagem": "Cole um link do YouTube ou digite o nome da musica."}) + "\n"
             return
         try:
-            for evento in sax_core.processar_stream(origem):
+            for evento in sax_core.processar_stream(origem, separar_voz=separar):
                 yield json.dumps(evento, ensure_ascii=False) + "\n"
         except Exception as exc:  # protege o worker de qualquer falha inesperada
             logger.error("Falha em /api/transcrever:\n%s", traceback.format_exc())
@@ -72,6 +77,8 @@ def transcrever_arquivo():
     # comecar - o Flask fecha o arquivo enviado assim que a view retorna,
     # entao salvar dentro do gerador (que so roda durante o envio da
     # resposta) falha com "read of closed file".
+    separar = request.form.get("separar_voz", "1") != "0"
+    titulo = os.path.splitext(arquivo.filename)[0].replace("_", " ").strip()
     pasta_tmp = tempfile.mkdtemp()
     nome_seguro = secure_filename(arquivo.filename) or "audio_enviado"
     caminho_salvo = os.path.join(pasta_tmp, nome_seguro)
@@ -79,7 +86,7 @@ def transcrever_arquivo():
 
     def gerar():
         try:
-            for evento in sax_core.processar_arquivo_stream(caminho_salvo):
+            for evento in sax_core.processar_arquivo_stream(caminho_salvo, separar_voz=separar, titulo=titulo):
                 yield json.dumps(evento, ensure_ascii=False) + "\n"
         except Exception as exc:
             logger.error("Falha em /api/transcrever-arquivo:\n%s", traceback.format_exc())
@@ -88,6 +95,55 @@ def transcrever_arquivo():
             shutil.rmtree(pasta_tmp, ignore_errors=True)
 
     return Response(gerar(), mimetype="application/x-ndjson")
+
+
+def _nome_arquivo(titulo, extensao):
+    base = unicodedata.normalize("NFKD", titulo or "partitura").encode("ascii", "ignore").decode()
+    base = re.sub(r"[^A-Za-z0-9]+", "_", base).strip("_").lower() or "partitura"
+    return f"{base[:60]}_sax_alto.{extensao}"
+
+
+@app.route("/api/partitura", methods=["POST"])
+def partitura_endpoint():
+    """Refaz a partitura a partir das notas ja detectadas (sem reprocessar o
+    audio), com novos ajustes, e devolve no formato pedido:
+    svg (JSON para mostrar na tela), pdf, png ou musicxml."""
+    corpo = request.get_json(force=True, silent=True) or {}
+    dados = corpo.get("dados_brutos")
+    opcoes = corpo.get("opcoes") or {}
+    formato = (corpo.get("formato") or "svg").lower()
+    if not dados or not dados.get("notas"):
+        return Response("Nenhuma transcricao informada.", status=400)
+    try:
+        resultado = sax_core.gerar_partitura(dados, opcoes)
+        titulo = opcoes.get("titulo") or dados.get("titulo") or "partitura"
+        if formato == "pdf":
+            conteudo = render_partitura.svgs_para_pdf(resultado["svgs"])
+            tipo = "application/pdf"
+        elif formato == "png":
+            conteudo = render_partitura.svgs_para_png(resultado["svgs"])
+            tipo = "image/png"
+        elif formato == "musicxml":
+            conteudo = resultado["musicxml"].encode("utf-8")
+            tipo = "application/vnd.recordare.musicxml+xml"
+        else:
+            return Response(json.dumps({
+                "svgs": resultado["svgs"],
+                "tom_escrito": resultado["tom_escrito"],
+                "compassos": resultado["compassos"],
+                "bpm": resultado["bpm"],
+                "notas": resultado["notas"],
+                "frases": resultado["frases"],
+                "confiancas": resultado["confiancas"],
+                "fora_do_alcance": resultado["fora_do_alcance"],
+            }, ensure_ascii=False), mimetype="application/json")
+    except Exception as exc:
+        logger.error("Falha em /api/partitura:\n%s", traceback.format_exc())
+        return Response(f"Erro ao gerar a partitura: {exc}", status=500)
+
+    extensao = "musicxml" if formato == "musicxml" else formato
+    return Response(conteudo, mimetype=tipo, headers={
+        "Content-Disposition": f'attachment; filename="{_nome_arquivo(titulo, extensao)}"'})
 
 
 @app.route("/api/pdf", methods=["POST"])

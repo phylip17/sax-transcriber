@@ -16,6 +16,10 @@ import tempfile
 import numpy as np
 import librosa
 
+import melodia
+import partitura
+import render_partitura
+
 
 # Sax alto em Eb soa uma sexta maior ABAIXO da nota escrita.
 # Ou seja: nota_escrita = nota_concertante + 9 semitons.
@@ -234,41 +238,99 @@ def agrupar_em_frases(segmentos):
     return frases
 
 
-def _analisar_e_transpor(caminho_audio: str):
-    """Roda a analise de melodia + transposicao a partir de um arquivo de
-    audio ja em disco. Gerador de eventos de progresso, igual processar_stream."""
-    yield {"tipo": "log", "mensagem": "Audio pronto. Analisando a melodia (pode levar alguns minutos no servidor gratuito)..."}
-    f0, voiced_flag, voiced_prob, tempo_por_frame = extrair_melodia(caminho_audio)
+def preparar_audio(caminho_audio: str):
+    """Carrega o audio, corta na duracao maxima e reamostra (16 kHz)."""
+    y, sr_nativo = librosa.load(caminho_audio, sr=None, mono=True)
+    y = y[: int(DURACAO_MAXIMA_S * sr_nativo)]
+    y = librosa.resample(y, orig_sr=sr_nativo, target_sr=TAXA_AMOSTRAGEM, res_type="scipy")
+    return y.astype(np.float32), TAXA_AMOSTRAGEM
 
-    yield {"tipo": "log", "mensagem": "Agrupando as notas detectadas..."}
-    segmentos = _segmentar(f0, voiced_flag, voiced_prob, tempo_por_frame)
-    eventos = agrupar_notas(segmentos)
 
-    if not eventos:
+def _analisar_e_transpor(caminho_audio: str, separar_voz: bool = True, titulo: str = ""):
+    """Pipeline completo, a partir de um arquivo de audio ja em disco:
+    separa a voz/solo, detecta andamento, extrai e limpa as notas e monta
+    a partitura para Sax Alto. Gerador de eventos de progresso."""
+    yield {"tipo": "log", "mensagem": "Audio pronto. Preparando..."}
+    y, sr = preparar_audio(caminho_audio)
+
+    yield {"tipo": "log", "mensagem": "Detectando o andamento (BPM)..."}
+    bpm, fase = melodia.estimar_tempo(y, sr)
+
+    if separar_voz:
+        yield {"tipo": "log", "mensagem": "Separando a melodia principal do acompanhamento..."}
+        y_melodia, energia = melodia.separar_voz(y, sr)
+    else:
+        y_melodia, energia = y, melodia.energia_por_quadro(y)
+    ataques = melodia.ataques_por_quadro(energia)
+
+    yield {"tipo": "log", "mensagem": "Ouvindo as notas (pode levar alguns minutos no servidor gratuito)..."}
+    f0, _voiced_flag, voiced_prob = librosa.pyin(
+        y_melodia,
+        fmin=librosa.note_to_hz("A2"),
+        fmax=librosa.note_to_hz("C6"),
+        sr=sr,
+    )
+    dt = 512 / sr  # hop padrao do librosa.pyin
+
+    yield {"tipo": "log", "mensagem": "Limpando as notas (vibrato, deslizes, erros de oitava)..."}
+    notas = melodia.notas_de_f0(f0, voiced_prob, dt, ataques=ataques)
+    if not notas:
         yield {"tipo": "erro", "mensagem": "Nao foi possivel detectar uma melodia clara nesse audio."}
         return
 
-    yield {"tipo": "log", "mensagem": f"{len(eventos)} notas detectadas. Transpondo para Sax Alto em Eb..."}
-    notas_sax = [transpor_para_sax_alto(nota) for nota, _dur, _conf in eventos]
-    confiancas = [round(confianca, 2) for _nota, _dur, confianca in eventos]
-    fora_do_alcance = [verificar_alcance(nota) for nota in notas_sax]
+    tonica, modo = melodia.estimar_tonalidade(notas, melodia.cromagrama_medio(y, sr))
+    yield {"tipo": "log", "mensagem": f"{len(notas)} notas | {bpm} BPM | escrevendo a partitura para Sax Alto em Mib..."}
 
-    frases_concertantes = agrupar_em_frases(segmentos)
-    frases_sax = [[transpor_para_sax_alto(nota) for nota in frase] for frase in frases_concertantes]
-
-    tonalidade = estimar_tonalidade(eventos)
+    dados = {"notas": notas, "bpm": bpm, "fase": fase, "tonica": tonica, "modo": modo,
+             "titulo": titulo or "Transcrição para Sax Alto"}
+    resultado = gerar_partitura(dados, {})
 
     yield {
         "tipo": "resultado",
-        "notas": notas_sax,
-        "frases": frases_sax,
-        "confiancas": confiancas,
-        "fora_do_alcance": fora_do_alcance,
-        "tonalidade": tonalidade,
+        "notas": resultado["notas"],
+        "frases": resultado["frases"],
+        "confiancas": resultado["confiancas"],
+        "fora_do_alcance": resultado["fora_do_alcance"],
+        "tonalidade": f"{NOMES_NOTAS_PT[tonica]} {modo}",
+        "partitura": {
+            "svgs": resultado["svgs"],
+            "musicxml": resultado["musicxml"],
+            "tom_escrito": resultado["tom_escrito"],
+            "bpm": bpm,
+            "compassos": resultado["compassos"],
+        },
+        "dados_brutos": dados,
     }
 
 
-def processar_stream(origem: str):
+def gerar_partitura(dados: dict, opcoes: dict):
+    """Monta e desenha a partitura a partir das notas ja detectadas (sem
+    reprocessar o audio). opcoes: bpm, detalhe ('semicolcheia'|'colcheia'),
+    compasso (2/3/4), oitava (-1/0/1), titulo."""
+    bpm = int(opcoes.get("bpm") or dados["bpm"])
+    bpm = max(30, min(260, bpm))
+    fase = float(dados.get("fase", 0.0))
+    if opcoes.get("bpm") and int(opcoes["bpm"]) != int(dados["bpm"]):
+        fase = 0.0 if not dados["notas"] else float(dados["notas"][0]["inicio"])
+    tonica, modo = int(dados["tonica"]), dados["modo"]
+    tom = opcoes.get("tom") or "auto"
+    if tom != "auto" and "-" in tom:
+        t, m = tom.split("-", 1)
+        if t.isdigit() and m in ("maior", "menor"):
+            tonica, modo = int(t) % 12, m
+    resultado = partitura.montar(
+        dados["notas"], bpm, fase,
+        tonica, modo,
+        detalhe=opcoes.get("detalhe", "semicolcheia"),
+        tempos_por_compasso=int(opcoes.get("compasso", 4)),
+        titulo=(opcoes.get("titulo") or dados.get("titulo") or "Transcrição para Sax Alto"),
+        ajuste_oitava_manual=int(opcoes.get("oitava", 0)),
+    )
+    resultado["svgs"] = render_partitura.renderizar_svgs(resultado["musicxml"])
+    return resultado
+
+
+def processar_stream(origem: str, separar_voz: bool = True):
     """Gerador que baixa do YouTube e emite eventos de progresso conforme
     processa, terminando com o resultado final (ou um erro). Cada evento e
     um dict:
@@ -284,11 +346,11 @@ def processar_stream(origem: str):
             yield {"tipo": "erro", "mensagem": str(exc)}
             return
 
-        yield from _analisar_e_transpor(caminho_audio)
+        yield from _analisar_e_transpor(caminho_audio, separar_voz, origem if not origem.startswith("http") else "")
 
 
-def processar_arquivo_stream(caminho_audio: str):
+def processar_arquivo_stream(caminho_audio: str, separar_voz: bool = True, titulo: str = ""):
     """Mesmo pipeline de processar_stream, mas a partir de um arquivo de
     audio que o usuario ja enviou (sem passar pelo download do YouTube).
     Usado como alternativa quando o YouTube bloqueia o download no servidor."""
-    yield from _analisar_e_transpor(caminho_audio)
+    yield from _analisar_e_transpor(caminho_audio, separar_voz, titulo)

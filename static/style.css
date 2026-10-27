@@ -712,3 +712,99 @@ body {
     flex-direction: column;
   }
 }
+
+
+/* ---- Partitura (Verovio) ---- */
+.opcao-separar {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: var(--texto);
+  line-height: 1.4;
+}
+.opcao-separar input { margin-top: 3px; accent-color: var(--brass); }
+.opcao-separar span { color: var(--texto-muted); }
+
+.partitura-caixa {
+  margin-bottom: 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--borda);
+}
+.partitura-paginas {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+}
+.partitura-pagina {
+  background: #fff;
+  border-radius: 8px;
+  padding: 6px;
+  box-shadow: 0 6px 18px var(--sombra);
+  overflow: hidden;
+}
+.partitura-pagina svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.partitura-dica {
+  font-size: 12px;
+  color: var(--texto-muted);
+  margin: 10px 0 0;
+  line-height: 1.5;
+}
+.botao-destaque {
+  background: var(--brass);
+  color: #1a1408;
+  border-color: var(--brass);
+  font-weight: 600;
+}
+.botao-destaque:hover { background: var(--brass-forte); }
+.partitura-ajustes {
+  margin-top: 14px;
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+.partitura-ajustes summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--brass-forte);
+}
+.ajustes-grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.ajustes-grade label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--texto-muted);
+}
+.ajustes-grade input,
+.ajustes-grade select {
+  background: var(--bg);
+  color: var(--texto);
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  padding: 8px;
+  font-size: 16px; /* evita zoom automatico no iPhone */
+  width: 100%;
+}
+.ajuste-atalhos { display: flex; gap: 6px; }
+.botao-mini {
+  background: transparent;
+  color: var(--texto);
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
