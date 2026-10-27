@@ -5,3 +5,7 @@ soundfile>=0.12.0
 Flask>=3.0.0
 reportlab>=4.0.0
 gunicorn>=21.2.0
+scipy>=1.10
+verovio>=4.3
+pypdf>=4.0
+Pillow>=10.0

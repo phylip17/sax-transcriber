@@ -46,11 +46,70 @@
       primeiro 1min30 da faixa.
     </p>
 
+    <label class="opcao-separar">
+      <input type="checkbox" id="separarVoz" checked>
+      Separar a melodia do acompanhamento <span>(recomendado para músicas com banda; desmarque se o áudio for só um instrumento ou voz)</span>
+    </label>
+
     <section id="console" class="console" hidden aria-live="polite">
       <div id="linhasConsole" class="console__linhas"></div>
     </section>
 
     <section id="resultado" class="resultado" hidden>
+      <div id="partituraCaixa" class="partitura-caixa" hidden>
+        <div class="resultado__cabecalho">
+          <h2>Partitura · Sax Alto (Mib)</h2>
+          <div class="resultado__acoes">
+            <button id="botaoPartituraPdf" type="button" class="botao-secundario botao-destaque">Baixar PDF</button>
+            <button id="botaoPartituraPng" type="button" class="botao-secundario">Baixar imagem</button>
+            <button id="botaoPartituraXml" type="button" class="botao-secundario">MusicXML</button>
+          </div>
+        </div>
+        <p id="partituraInfo" class="tonalidade"></p>
+        <div id="partituraPaginas" class="partitura-paginas"></div>
+        <p class="partitura-dica">Transcrição automática: confira de ouvido. Se alguma nota sair errada, abra o arquivo MusicXML no MuseScore (grátis) e corrija.</p>
+
+        <details class="partitura-ajustes">
+          <summary>Ajustar a partitura</summary>
+          <div class="ajustes-grade">
+            <label>Título
+              <input type="text" id="ajusteTitulo" autocomplete="off">
+            </label>
+            <label>Andamento (BPM)
+              <input type="number" id="ajusteBpm" min="30" max="260">
+              <span class="ajuste-atalhos">
+                <button type="button" class="botao-mini" data-bpm="metade">÷2</button>
+                <button type="button" class="botao-mini" data-bpm="dobro">×2</button>
+              </span>
+            </label>
+            <label>Ritmo
+              <select id="ajusteDetalhe">
+                <option value="semicolcheia">Detalhado (até semicolcheia)</option>
+                <option value="colcheia">Simples (até colcheia)</option>
+              </select>
+            </label>
+            <label>Compasso
+              <select id="ajusteCompasso">
+                <option value="4">4/4</option>
+                <option value="3">3/4</option>
+                <option value="2">2/4</option>
+              </select>
+            </label>
+            <label>Oitava
+              <select id="ajusteOitava">
+                <option value="0">Automática</option>
+                <option value="1">Uma oitava acima</option>
+                <option value="-1">Uma oitava abaixo</option>
+              </select>
+            </label>
+            <label>Tom da música (original)
+              <select id="ajusteTom"></select>
+            </label>
+          </div>
+          <button id="botaoRefazerPartitura" type="button" class="botao-secundario botao-destaque">Refazer partitura</button>
+        </details>
+      </div>
+
       <div class="resultado__cabecalho">
         <h2>Notas para o sax</h2>
         <div class="resultado__acoes">

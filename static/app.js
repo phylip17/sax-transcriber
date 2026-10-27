@@ -173,6 +173,9 @@ function limparEstado() {
   secaoResultado.hidden = true;
   secaoLetra.hidden = true;
   console_.hidden = false;
+  dadosBrutosAtuais = null;
+  partituraCaixa.hidden = true;
+  partituraPaginas.innerHTML = "";
 }
 
 function mostrarErro(mensagem) {
@@ -470,6 +473,14 @@ function abrirItemBiblioteca(id) {
   contagensLetra = item.contagensLetra || [];
   praticadasLetra = item.praticadasLetra || [];
   renderizarLetra();
+
+  partituraCaixa.hidden = true;
+  partituraPaginas.innerHTML = "";
+  dadosBrutosAtuais = item.dadosBrutos || null;
+  if (dadosBrutosAtuais) {
+    prepararAjustes(dadosBrutosAtuais, { bpm: dadosBrutosAtuais.bpm }, item.opcoesPartitura);
+    refazerPartitura();
+  }
 }
 
 function removerItemBiblioteca(id) {
@@ -497,6 +508,8 @@ botaoSalvarBiblioteca.addEventListener("click", () => {
     letra: campoLetra.value,
     contagensLetra,
     praticadasLetra,
+    dadosBrutos: dadosBrutosAtuais,
+    opcoesPartitura: dadosBrutosAtuais ? lerAjustes() : null,
     criadoEm: new Date().toISOString(),
   };
 
@@ -587,6 +600,11 @@ async function processarResposta(resposta) {
         mostrarErro(evento_.mensagem);
       } else if (evento_.tipo === "resultado") {
         mostrarResultado(evento_.notas, evento_.frases, evento_.confiancas, evento_.fora_do_alcance, evento_.tonalidade);
+        if (evento_.partitura && evento_.dados_brutos) {
+          dadosBrutosAtuais = evento_.dados_brutos;
+          prepararAjustes(evento_.dados_brutos, evento_.partitura);
+          mostrarPartitura(evento_.partitura);
+        }
       }
     }
   }
@@ -605,7 +623,7 @@ formulario.addEventListener("submit", async (evento) => {
     const resposta = await fetch("/api/transcrever", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ origem }),
+      body: JSON.stringify({ origem, separar_voz: separarVoz.checked }),
     });
     await processarResposta(resposta);
   } catch (err) {
@@ -628,6 +646,7 @@ formularioArquivo.addEventListener("submit", async (evento) => {
   try {
     const dadosFormulario = new FormData();
     dadosFormulario.append("arquivo", arquivo);
+    dadosFormulario.append("separar_voz", separarVoz.checked ? "1" : "0");
 
     const resposta = await fetch("/api/transcrever-arquivo", {
       method: "POST",
@@ -1043,3 +1062,147 @@ botaoSalvarCifra.addEventListener("click", () => {
 buscaCifras.addEventListener("input", renderizarBibliotecaCifras);
 
 renderizarBibliotecaCifras();
+
+
+// ---- Partitura completa (desenhada no servidor com Verovio) ----
+const separarVoz = document.getElementById("separarVoz");
+const partituraCaixa = document.getElementById("partituraCaixa");
+const partituraPaginas = document.getElementById("partituraPaginas");
+const partituraInfo = document.getElementById("partituraInfo");
+const botaoPartituraPdf = document.getElementById("botaoPartituraPdf");
+const botaoPartituraPng = document.getElementById("botaoPartituraPng");
+const botaoPartituraXml = document.getElementById("botaoPartituraXml");
+const botaoRefazerPartitura = document.getElementById("botaoRefazerPartitura");
+const ajusteTitulo = document.getElementById("ajusteTitulo");
+const ajusteBpm = document.getElementById("ajusteBpm");
+const ajusteDetalhe = document.getElementById("ajusteDetalhe");
+const ajusteCompasso = document.getElementById("ajusteCompasso");
+const ajusteOitava = document.getElementById("ajusteOitava");
+const ajusteTom = document.getElementById("ajusteTom");
+
+let dadosBrutosAtuais = null;
+
+const NOMES_TONS = ["Dó", "Dó#/Réb", "Ré", "Mib", "Mi", "Fá", "Fá#", "Sol", "Láb", "Lá", "Sib", "Si"];
+(function preencherTons() {
+  const auto = document.createElement("option");
+  auto.value = "auto";
+  auto.textContent = "Detectado automaticamente";
+  ajusteTom.appendChild(auto);
+  ["maior", "menor"].forEach((modo) => {
+    NOMES_TONS.forEach((nome, i) => {
+      const op = document.createElement("option");
+      op.value = `${i}-${modo}`;
+      op.textContent = `${nome} ${modo}`;
+      ajusteTom.appendChild(op);
+    });
+  });
+})();
+
+function prepararAjustes(dados, partitura, opcoesSalvas) {
+  const o = opcoesSalvas || {};
+  ajusteTitulo.value = o.titulo || dados.titulo || "";
+  ajusteBpm.value = o.bpm || partitura.bpm || dados.bpm || "";
+  ajusteDetalhe.value = o.detalhe || "semicolcheia";
+  ajusteCompasso.value = String(o.compasso || 4);
+  ajusteOitava.value = String(o.oitava || 0);
+  ajusteTom.value = o.tom || "auto";
+  const autoOp = ajusteTom.querySelector('option[value="auto"]');
+  autoOp.textContent = `Detectado: ${NOMES_TONS[dados.tonica]} ${dados.modo}`;
+}
+
+function lerAjustes() {
+  return {
+    titulo: ajusteTitulo.value.trim(),
+    bpm: parseInt(ajusteBpm.value, 10) || null,
+    detalhe: ajusteDetalhe.value,
+    compasso: parseInt(ajusteCompasso.value, 10),
+    oitava: parseInt(ajusteOitava.value, 10),
+    tom: ajusteTom.value,
+  };
+}
+
+function mostrarPartitura(partitura) {
+  partituraPaginas.innerHTML = "";
+  (partitura.svgs || []).forEach((svg) => {
+    const pagina = document.createElement("div");
+    pagina.className = "partitura-pagina";
+    pagina.innerHTML = svg;
+    partituraPaginas.appendChild(pagina);
+  });
+  const partes = [];
+  if (partitura.tom_escrito) partes.push(`Tom escrito para o sax: ${partitura.tom_escrito}`);
+  if (partitura.bpm) partes.push(`${partitura.bpm} BPM`);
+  if (partitura.compassos) partes.push(`${partitura.compassos} compassos`);
+  partituraInfo.textContent = partes.join(" · ");
+  partituraCaixa.hidden = false;
+}
+
+async function pedirPartitura(formato) {
+  const resposta = await fetch("/api/partitura", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dados_brutos: dadosBrutosAtuais, opcoes: lerAjustes(), formato }),
+  });
+  if (!resposta.ok) throw new Error(await resposta.text());
+  return resposta;
+}
+
+async function refazerPartitura() {
+  if (!dadosBrutosAtuais) return;
+  const textoOriginal = botaoRefazerPartitura.textContent;
+  botaoRefazerPartitura.textContent = "Refazendo...";
+  botaoRefazerPartitura.disabled = true;
+  try {
+    const dados = await (await pedirPartitura("svg")).json();
+    mostrarPartitura(dados);
+    // a lista de notas e o modo pratica acompanham a nova partitura
+    mostrarResultado(dados.notas, dados.frases, dados.confiancas, dados.fora_do_alcance,
+      tonalidadeEstimada.hidden ? null : tonalidadeEstimada.textContent.replace(/^Tonalidade estimada \(na música original\): /, ""));
+    partituraCaixa.hidden = false;
+  } catch (err) {
+    mostrarErro("Não foi possível refazer a partitura agora.");
+  } finally {
+    botaoRefazerPartitura.textContent = textoOriginal;
+    botaoRefazerPartitura.disabled = false;
+  }
+}
+
+function nomeBase() {
+  const titulo = (ajusteTitulo.value || "partitura").normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return (titulo.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_|_$/g, "").toLowerCase() || "partitura") + "_sax_alto";
+}
+
+async function baixarPartitura(formato, extensao, botao) {
+  if (!dadosBrutosAtuais) return;
+  const textoOriginal = botao.textContent;
+  botao.textContent = "Gerando...";
+  botao.disabled = true;
+  try {
+    const blob = await (await pedirPartitura(formato)).blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${nomeBase()}.${extensao}`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch (err) {
+    mostrarErro("Não foi possível gerar o arquivo da partitura agora.");
+  } finally {
+    botao.textContent = textoOriginal;
+    botao.disabled = false;
+  }
+}
+
+botaoPartituraPdf.addEventListener("click", () => baixarPartitura("pdf", "pdf", botaoPartituraPdf));
+botaoPartituraPng.addEventListener("click", () => baixarPartitura("png", "png", botaoPartituraPng));
+botaoPartituraXml.addEventListener("click", () => baixarPartitura("musicxml", "musicxml", botaoPartituraXml));
+botaoRefazerPartitura.addEventListener("click", refazerPartitura);
+
+document.querySelectorAll("[data-bpm]").forEach((botao) => {
+  botao.addEventListener("click", () => {
+    const atual = parseInt(ajusteBpm.value, 10) || (dadosBrutosAtuais && dadosBrutosAtuais.bpm) || 100;
+    ajusteBpm.value = botao.dataset.bpm === "metade" ? Math.round(atual / 2) : Math.round(atual * 2);
+  });
+});
