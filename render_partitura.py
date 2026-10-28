@@ -26,7 +26,8 @@ OPCOES_VEROVIO = {
     "pageMarginLeft": 60,
     "pageMarginRight": 60,
     "scale": 58,
-    "breaks": "auto",
+    "breaks": "encoded",   # quebras de linha decididas em partitura.py
+    "lyricSize": 3.6,
     "header": "auto",
     "footer": "none",
     "spacingSystem": 14,
