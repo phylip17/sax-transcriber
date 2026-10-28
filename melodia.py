@@ -38,6 +38,26 @@ def _stft(y, n_fft, hop):
     return z.astype(np.complex64)
 
 
+def _bandas_em_blocos(y, n_fft, hop, n_bandas, bloco=1500):
+    """Espectro de magnitude ja agrupado em bandas log, calculado em
+    pedacos (sem guardar o espectro inteiro na memoria). Retorna
+    (bandas[n_bandas, quadros], soma_por_classe_de_nota[12]) - a segunda
+    parte serve para o cromagrama."""
+    y = np.asarray(y, dtype=np.float32)
+    janela = signal.get_window("hann", n_fft).astype(np.float32)
+    xp = np.pad(y, (n_fft // 2, n_fft // 2))
+    n_quadros = 1 + len(y) // hop
+    n_freq = n_fft // 2 + 1
+    bordas = np.unique(np.geomspace(1, n_freq, n_bandas + 1).astype(int) - 1)
+    saida = []
+    for ini in range(0, n_quadros, bloco):
+        idx = np.arange(ini, min(n_quadros, ini + bloco))
+        pos = np.minimum(idx[:, None] * hop + np.arange(n_fft)[None, :], len(xp) - 1)
+        mag = np.abs(np.fft.rfft(xp[pos] * janela, axis=1)).astype(np.float32).T
+        saida.append(np.add.reduceat(mag, bordas, axis=0))
+    return np.concatenate(saida, axis=1)
+
+
 def _istft(z, n_fft, hop, tamanho):
     _t, y = signal.istft(z, nperseg=n_fft, noverlap=n_fft - hop,
                          boundary=True)
@@ -81,12 +101,16 @@ def separar_voz(y, sr, n_fft=2048, hop=512, vizinhos=30, distancia_min_s=2.0,
     # Similaridade (cosseno) entre todos os quadros, em bandas reduzidas
     feat = np.log1p(_bandas_log(mag)).astype(np.float32)
     feat /= np.linalg.norm(feat, axis=0, keepdims=True) + 1e-8
-    sim = feat.T @ feat
-    for k in range(-largura, largura + 1):
-        idx = np.arange(max(0, -k), min(n_quadros, n_quadros - k))
-        sim[idx, idx + k] = -np.inf
+    # Similaridade calculada em blocos de linhas (a matriz inteira de uma
+    # musica de 90 s ocupava ~100 MB so de indices)
     k = min(vizinhos, n_quadros - 2 * largura - 1)
-    vizinhos_idx = np.argpartition(-sim, k, axis=1)[:, :k]
+    vizinhos_idx = np.empty((n_quadros, k), dtype=np.int32)
+    colunas = np.arange(n_quadros)
+    for ini in range(0, n_quadros, 256):
+        linhas = np.arange(ini, min(n_quadros, ini + 256))
+        sim = feat[:, linhas].T @ feat
+        sim[np.abs(linhas[:, None] - colunas[None, :]) <= largura] = -np.inf
+        vizinhos_idx[linhas] = np.argpartition(-sim, k, axis=1)[:, :k]
     del sim
 
     # Mediana dos vizinhos = estimativa do acompanhamento (em blocos, para
@@ -99,9 +123,88 @@ def separar_voz(y, sr, n_fft=2048, hop=512, vizinhos=30, distancia_min_s=2.0,
     acomp = np.minimum(acomp, mag)
 
     mascara = _softmask(mag - acomp, margem * acomp)
-    z_voz = mascara * z
-    y_voz = _istft(z_voz, n_fft, hop, tamanho)
-    return y_voz, (np.abs(z_voz) ** 2).sum(axis=0)
+    del mag, acomp
+    z *= mascara  # em vez de criar outra copia do espectro (economiza memoria)
+    del mascara
+    energia = (np.abs(z) ** 2).sum(axis=0)
+    y_voz = _istft(z, n_fft, hop, tamanho)
+    return y_voz, energia
+
+
+def rastrear_afinacao(y, sr, fmin=110.0, fmax=1050.0, frame=2048, hop=512,
+                      limiar=0.15, bloco=400):
+    """Detector de afinacao YIN (de Cheveigne & Kawahara), todo vetorizado
+    com FFT. Faz o mesmo papel do librosa.pyin, mas dezenas de vezes mais
+    rapido - essencial no plano gratuito do Render (0,1 CPU), onde o pyin
+    levava minutos e estourava o tempo limite do servidor.
+
+    Quadros centrados em i*hop (igual ao pyin). Retorna (f0, confianca):
+    f0 em Hz (nan quando nao ha nota) e confianca de 0 a 1."""
+    y = np.asarray(y, dtype=np.float32)
+    w = frame // 2                       # janela de integracao
+    tau_min = max(2, int(sr / fmax))
+    tau_max = min(w - 1, int(np.ceil(sr / fmin)))
+    xp = np.pad(y, (frame // 2, frame // 2))
+    n_quadros = 1 + len(y) // hop
+    nfft = 1 << int(np.ceil(np.log2(frame + w)))
+
+    f0 = np.full(n_quadros, np.nan, dtype=np.float32)
+    conf = np.zeros(n_quadros, dtype=np.float32)
+    energia_ref = float(np.sqrt(np.mean(y ** 2))) + 1e-9
+    taus = np.arange(tau_max + 2)
+
+    for ini in range(0, n_quadros, bloco):
+        idx = np.arange(ini, min(n_quadros, ini + bloco))
+        pos = idx[:, None] * hop + np.arange(frame)[None, :]
+        pos = np.minimum(pos, len(xp) - 1)
+        quadros = xp[pos].astype(np.float64)                # (n, frame); float64 evita erro de arredondamento na funcao diferenca
+
+        # Autocorrelacao cruzada r(tau) = sum_j x_j * x_{j+tau}, j < w
+        a = np.fft.rfft(quadros[:, :w], nfft)
+        b = np.fft.rfft(quadros, nfft)
+        r = np.fft.irfft(np.conj(a) * b, nfft)[:, : tau_max + 2]
+
+        # Funcao diferenca d(tau) = E0 + E(tau) - 2 r(tau)
+        q2 = np.cumsum(np.pad(quadros ** 2, ((0, 0), (1, 0))), axis=1)
+        e0 = q2[:, w][:, None]
+        e_tau = q2[:, taus + w] - q2[:, taus]
+        d = np.maximum(e0 + e_tau - 2 * r, 0)
+
+        # Diferenca normalizada cumulativa (CMND)
+        cm = np.ones_like(d)
+        soma = np.cumsum(d[:, 1:], axis=1)
+        cm[:, 1:] = d[:, 1:] * np.arange(1, d.shape[1]) / (soma + 1e-12)
+
+        faixa = cm[:, tau_min: tau_max + 1]
+        abaixo = faixa < limiar
+        tem = abaixo.any(axis=1)
+        # primeiro tau abaixo do limiar, depois desce ate o minimo local
+        primeiro = np.where(tem, abaixo.argmax(axis=1), faixa.argmin(axis=1))
+        for _ in range(8):
+            prox = np.minimum(primeiro + 1, faixa.shape[1] - 1)
+            melhora = faixa[np.arange(len(idx)), prox] < faixa[np.arange(len(idx)), primeiro]
+            if not melhora.any():
+                break
+            primeiro = np.where(melhora, prox, primeiro)
+        valor = faixa[np.arange(len(idx)), primeiro]
+
+        # Interpolacao parabolica para precisao abaixo de 1 amostra
+        t = primeiro + tau_min
+        tl = np.clip(t - 1, 0, cm.shape[1] - 1)
+        tr = np.clip(t + 1, 0, cm.shape[1] - 1)
+        linhas = np.arange(len(idx))
+        s0, s1, s2 = cm[linhas, tl], cm[linhas, t], cm[linhas, tr]
+        den = s0 - 2 * s1 + s2
+        with np.errstate(divide="ignore", invalid="ignore"):
+            desloc = np.where(np.abs(den) > 1e-9, 0.5 * (s0 - s2) / den, 0.0)
+        tau_fino = t + np.clip(desloc, -1, 1)
+
+        rms = np.sqrt(e0[:, 0] / w)
+        com_som = rms > 0.02 * energia_ref
+        aceita = tem & com_som  # so aceita quando ha periodicidade clara (evita pegar acordes do fundo)
+        f0[idx] = np.where(aceita, sr / tau_fino, np.nan)
+        conf[idx] = np.where(com_som, np.clip(1 - valor, 0, 1), 0)
+    return f0, conf
 
 
 def energia_por_quadro(y, n_fft=2048, hop=512):
@@ -112,12 +215,20 @@ def cromagrama_medio(y, sr, n_fft=4096, hop=2048):
     """Quanto cada uma das 12 notas (Do..Si) soa na musica inteira
     (melodia + acompanhamento). A harmonia da banda ajuda muito a acertar
     o tom - so a melodia as vezes engana."""
-    mag = np.abs(_stft(y, n_fft, hop))
-    freqs = np.arange(mag.shape[0]) * sr / n_fft
+    y = np.asarray(y, dtype=np.float32)
+    janela = signal.get_window("hann", n_fft).astype(np.float32)
+    freqs = np.arange(n_fft // 2 + 1) * sr / n_fft
     validos = (freqs >= 65) & (freqs <= 2000)
     midi = 69 + 12 * np.log2(freqs[validos] / 440.0)
     classes = np.round(midi).astype(int) % 12
-    energia = np.log1p(100 * mag[validos] / (mag[validos].max() + 1e-10)).sum(axis=1)
+    n_quadros = max(1, 1 + (len(y) - n_fft) // hop)
+    mags = []
+    for ini in range(0, n_quadros, 300):
+        idx = np.arange(ini, min(n_quadros, ini + 300))
+        pos = np.minimum(idx[:, None] * hop + np.arange(n_fft)[None, :], len(y) - 1)
+        mags.append(np.abs(np.fft.rfft(y[pos] * janela, axis=1))[:, validos].astype(np.float32))
+    mag = np.concatenate(mags, axis=0).T
+    energia = np.log1p(100 * mag / (mag.max() + 1e-10)).sum(axis=1)
     croma = np.bincount(classes, weights=energia, minlength=12)
     return croma / (croma.sum() + 1e-10)
 
@@ -164,9 +275,8 @@ def estimar_tempo(y, sr, bpm_min=60, bpm_max=180):
     """Estima o BPM (andamento constante) e o instante do primeiro tempo.
     Retorna (bpm_inteiro, fase_em_segundos)."""
     n_fft, hop = 1024, 128
-    mag = np.abs(_stft(y, n_fft, hop))
     taxa = sr / hop
-    log_mag = np.log1p(100 * _bandas_log(mag, 64))
+    log_mag = np.log1p(100 * _bandas_em_blocos(y, n_fft, hop, 64))
     fluxo = np.maximum(0, np.diff(log_mag, axis=1)).sum(axis=0)
     fluxo = np.concatenate([[0], fluxo])
     janela = int(0.5 * taxa)

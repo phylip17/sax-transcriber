@@ -1,4 +1,4 @@
-yt-dlp>=2024.1.1
+yt-dlp[default]>=2025.11.12
 librosa>=0.10.0
 numpy>=1.24.0
 soundfile>=0.12.0
