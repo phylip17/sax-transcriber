@@ -57,13 +57,23 @@ def baixar_audio(url_ou_busca: str, pasta_destino: str) -> str:
 
     comando = [
         "yt-dlp",
+        "--no-playlist",
         "-x",
         "--audio-format", "wav",
         "--audio-quality", "0",
+        # Desde nov/2025 o yt-dlp precisa de um motor de JavaScript para
+        # resolver os desafios do YouTube. Por padrao ele so aceita o Deno;
+        # o Node (instalado no Dockerfile) precisa ser liberado aqui. Os
+        # scripts que ele roda vem do pacote yt-dlp[default] (yt-dlp-ejs).
+        "--js-runtimes", "node",
         # O cliente "tv" (o mesmo que a Smart TV do YouTube usa) nao exige o
-        # "PO Token" de verificacao que o YouTube passou a cobrar de outros
-        # clientes, desde que haja cookies de uma conta logada.
-        "--extractor-args", "youtube:player_client=tv",
+        # "PO Token" de verificacao, desde que haja cookies de uma conta
+        # logada. web_safari e mweb ficam como alternativas se o tv falhar.
+        "--extractor-args", "youtube:player_client=tv,web_safari,mweb",
+        # Baixa so o trecho que vai ser analisado, ja em mono 16 kHz:
+        # muito mais rapido e leve do que a musica inteira em alta qualidade.
+        "--download-sections", f"*0-{DURACAO_MAXIMA_S + 5}",
+        "--postprocessor-args", f"ExtractAudio:-ac 1 -ar {TAXA_AMOSTRAGEM}",
         "-o", saida_template,
     ]
 
@@ -77,15 +87,39 @@ def baixar_audio(url_ou_busca: str, pasta_destino: str) -> str:
 
     comando.append(alvo)
 
-    resultado = subprocess.run(comando, capture_output=True, text=True)
+    try:
+        resultado = subprocess.run(comando, capture_output=True, text=True, timeout=150)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("O YouTube demorou demais para liberar o audio. Tente de novo ou envie o arquivo de audio.")
     if resultado.returncode != 0:
-        erro = resultado.stderr.strip().splitlines()[-1] if resultado.stderr.strip() else "erro desconhecido"
-        raise RuntimeError(f"Falha ao baixar o audio ({erro})")
+        print("yt-dlp falhou:\n" + resultado.stderr[-3000:], flush=True)  # aparece nos logs do Render
+        linhas = [l for l in resultado.stderr.strip().splitlines() if "ERROR" in l] or resultado.stderr.strip().splitlines()
+        erro = linhas[-1] if linhas else "erro desconhecido"
+        raise RuntimeError(_explicar_erro_youtube(erro))
 
     caminho_wav = os.path.join(pasta_destino, "audio.wav")
     if not os.path.exists(caminho_wav):
         raise RuntimeError("O arquivo de audio nao foi gerado apos o download.")
     return caminho_wav
+
+
+def _explicar_erro_youtube(erro: str) -> str:
+    """Traduz os erros mais comuns do yt-dlp para uma dica do que fazer."""
+    baixo = erro.lower()
+    if "sign in to confirm" in baixo or "not a bot" in baixo:
+        dica = ("O YouTube bloqueou o servidor achando que e um robo. Os cookies "
+                "da sua conta (cookies.txt no Render) provavelmente expiraram: "
+                "exporte de novo e substitua o Secret File. Enquanto isso, use "
+                "'Enviar arquivo de audio'.")
+    elif "javascript" in baixo or "js runtime" in baixo or "n challenge" in baixo or "signature" in baixo:
+        dica = "O yt-dlp nao conseguiu resolver o desafio de JavaScript do YouTube (atualize o deploy no Render)."
+    elif "private" in baixo or "unavailable" in baixo or "removed" in baixo:
+        dica = "Esse video esta privado, removido ou bloqueado na regiao."
+    elif "age" in baixo and "restrict" in baixo:
+        dica = "Esse video tem restricao de idade; precisa de cookies de uma conta logada."
+    else:
+        dica = "Tente outro link ou use 'Enviar arquivo de audio'."
+    return f"Falha ao baixar o audio. {dica} (detalhe: {erro.strip()[:220]})"
 
 
 def extrair_melodia(caminho_audio: str):
@@ -240,9 +274,12 @@ def agrupar_em_frases(segmentos):
 
 def preparar_audio(caminho_audio: str):
     """Carrega o audio, corta na duracao maxima e reamostra (16 kHz)."""
-    y, sr_nativo = librosa.load(caminho_audio, sr=None, mono=True)
+    # duration= faz o librosa ler so o trecho analisado (antes ele lia a
+    # musica inteira e so depois cortava - lento em arquivos grandes)
+    y, sr_nativo = librosa.load(caminho_audio, sr=None, mono=True, duration=DURACAO_MAXIMA_S)
     y = y[: int(DURACAO_MAXIMA_S * sr_nativo)]
-    y = librosa.resample(y, orig_sr=sr_nativo, target_sr=TAXA_AMOSTRAGEM, res_type="scipy")
+    if sr_nativo != TAXA_AMOSTRAGEM:
+        y = librosa.resample(y, orig_sr=sr_nativo, target_sr=TAXA_AMOSTRAGEM, res_type="scipy")
     return y.astype(np.float32), TAXA_AMOSTRAGEM
 
 
@@ -263,14 +300,16 @@ def _analisar_e_transpor(caminho_audio: str, separar_voz: bool = True, titulo: s
         y_melodia, energia = y, melodia.energia_por_quadro(y)
     ataques = melodia.ataques_por_quadro(energia)
 
-    yield {"tipo": "log", "mensagem": "Ouvindo as notas (pode levar alguns minutos no servidor gratuito)..."}
-    f0, _voiced_flag, voiced_prob = librosa.pyin(
-        y_melodia,
+    yield {"tipo": "log", "mensagem": "Ouvindo as notas..."}
+    # YIN vetorizado (melodia.py): mesmo resultado do librosa.pyin nos
+    # testes, mas dezenas de vezes mais rapido - o pyin estourava o tempo
+    # limite no plano gratuito do Render.
+    f0, voiced_prob = melodia.rastrear_afinacao(
+        y_melodia, sr,
         fmin=librosa.note_to_hz("A2"),
         fmax=librosa.note_to_hz("C6"),
-        sr=sr,
     )
-    dt = 512 / sr  # hop padrao do librosa.pyin
+    dt = 512 / sr
 
     yield {"tipo": "log", "mensagem": "Limpando as notas (vibrato, deslizes, erros de oitava)..."}
     notas = melodia.notas_de_f0(f0, voiced_prob, dt, ataques=ataques)
