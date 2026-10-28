@@ -35,6 +35,8 @@ NOMES_TOM_PT = {0: "Dó", 1: "Réb", 2: "Ré", 3: "Mib", 4: "Mi", 5: "Fá",
                 6: "Fá#", 7: "Sol", 8: "Láb", 9: "Lá", 10: "Sib", 11: "Si"}
 NOMES_TOM_PT_SUST = {1: "Dó#", 3: "Ré#", 6: "Fá#", 8: "Sol#", 10: "Lá#"}
 
+NOMES_PT = {"C": "Dó", "D": "Ré", "E": "Mi", "F": "Fá", "G": "Sol", "A": "Lá", "B": "Si"}
+
 # Figuras possiveis em "quarter lengths" (semínima = 1)
 FIGURAS = [(4.0, "whole", 0), (3.0, "half", 1), (2.0, "half", 0),
            (1.5, "quarter", 1), (1.0, "quarter", 0), (0.75, "eighth", 1),
@@ -64,6 +66,11 @@ def grafar(midi, quintas):
     tabela = NOMES_SUSTENIDO if quintas >= 0 else NOMES_BEMOL
     step, alter = tabela[midi % 12]
     return step, alter, midi // 12 - 1
+
+
+def nome_pt(step, alter):
+    """Nome da nota em portugues, como se le na partitura: Dó, Fá#, Sib..."""
+    return NOMES_PT[step] + ("#" if alter > 0 else ("b" if alter < 0 else ""))
 
 
 def nome_nota(midi, quintas=0):
@@ -260,7 +267,8 @@ def _decompor(pos, dur, g, tempos, eh_pausa):
 # ----------------------------------------------------------------------------
 
 def montar(notas_concerto, bpm, fase_s, tonica, modo, detalhe="semicolcheia",
-           tempos_por_compasso=4, titulo="Transcrição", ajuste_oitava_manual=0):
+           tempos_por_compasso=4, titulo="Transcrição", ajuste_oitava_manual=0,
+           nomes_das_notas=True):
     """Pipeline completo: notas (concerto, segundos) -> partitura.
     Retorna dict com musicxml, lista de notas escritas e metadados."""
     g = 4 if detalhe == "semicolcheia" else 2
@@ -275,7 +283,8 @@ def montar(notas_concerto, bpm, fase_s, tonica, modo, detalhe="semicolcheia",
         ev["escrito"] = m
 
     compassos = _organizar_compassos(eventos, g, tempos_por_compasso)
-    xml = _gerar_musicxml(compassos, g, tempos_por_compasso, quintas, modo, bpm, titulo, nome_tom)
+    xml = _gerar_musicxml(compassos, g, tempos_por_compasso, quintas, modo, bpm, titulo, nome_tom,
+                          nomes_das_notas)
 
     # Frases (para a parte de letra/pratica do app): quebra em pausas >= 1 tempo
     frases, atual = [], []
@@ -335,7 +344,8 @@ def _organizar_compassos(eventos, g, tempos):
     return compassos
 
 
-def _gerar_musicxml(compassos, g, tempos, quintas, modo, bpm, titulo, nome_tom):
+def _gerar_musicxml(compassos, g, tempos, quintas, modo, bpm, titulo, nome_tom,
+                    nomes_das_notas=True):
     alter_armadura = _alteracoes_armadura(quintas)
     m_total = g * tempos
     saida = []
@@ -351,8 +361,17 @@ def _gerar_musicxml(compassos, g, tempos, quintas, modo, bpm, titulo, nome_tom):
       '<part-abbreviation>A. Sax.</part-abbreviation></score-part></part-list>')
     w('<part id="P1">')
 
+    # Quebra de linha pela quantidade de notas: com os nomes escritos
+    # embaixo, cada nota precisa de espaco para o nome nao encavalar.
+    limite_linha = 14 if nomes_das_notas else 22
+    contagem_linha = 0
     for num, itens in enumerate(compassos, start=1):
+        n_notas = len(itens)  # notas, pausas e continuacoes ligadas: tudo ocupa espaco
+        nova_linha = num > 1 and contagem_linha + n_notas > limite_linha
+        contagem_linha = n_notas if (nova_linha or num == 1) else contagem_linha + n_notas
         w(f'<measure number="{num}">')
+        if nova_linha:
+            w('<print new-system="yes"/>')
         if num == 1:
             w(f'<attributes><divisions>{g}</divisions>'
               f'<key><fifths>{quintas}</fifths><mode>{"major" if modo == "maior" else "minor"}</mode></key>'
@@ -420,6 +439,11 @@ def _gerar_musicxml(compassos, g, tempos, quintas, modo, bpm, titulo, nome_tom):
                 if peca["tie_start"]:
                     partes_xml.append('<tied type="start"/>')
                 partes_xml.append('</notations>')
+            if nomes_das_notas and not peca["tie_stop"]:
+                # Nome da nota escrito embaixo dela (so no inicio da nota;
+                # a continuacao ligada nao repete o nome)
+                partes_xml.append('<lyric number="1" placement="below"><syllabic>single</syllabic>'
+                                  f'<text>{nome_pt(step, alt)}</text></lyric>')
             partes_xml.append('</note>')
             w("".join(partes_xml))
         if num == len(compassos):

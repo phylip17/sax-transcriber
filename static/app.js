@@ -1079,6 +1079,7 @@ const ajusteDetalhe = document.getElementById("ajusteDetalhe");
 const ajusteCompasso = document.getElementById("ajusteCompasso");
 const ajusteOitava = document.getElementById("ajusteOitava");
 const ajusteTom = document.getElementById("ajusteTom");
+const ajusteNomes = document.getElementById("ajusteNomes");
 
 let dadosBrutosAtuais = null;
 
@@ -1106,6 +1107,7 @@ function prepararAjustes(dados, partitura, opcoesSalvas) {
   ajusteCompasso.value = String(o.compasso || 4);
   ajusteOitava.value = String(o.oitava || 0);
   ajusteTom.value = o.tom || "auto";
+  ajusteNomes.value = o.nomes === false ? "0" : "1";
   const autoOp = ajusteTom.querySelector('option[value="auto"]');
   autoOp.textContent = `Detectado: ${NOMES_TONS[dados.tonica]} ${dados.modo}`;
 }
@@ -1118,6 +1120,7 @@ function lerAjustes() {
     compasso: parseInt(ajusteCompasso.value, 10),
     oitava: parseInt(ajusteOitava.value, 10),
     tom: ajusteTom.value,
+    nomes: ajusteNomes.value === "1",
   };
 }
 

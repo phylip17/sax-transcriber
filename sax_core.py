@@ -364,6 +364,7 @@ def gerar_partitura(dados: dict, opcoes: dict):
         tempos_por_compasso=int(opcoes.get("compasso", 4)),
         titulo=(opcoes.get("titulo") or dados.get("titulo") or "Transcrição para Sax Alto"),
         ajuste_oitava_manual=int(opcoes.get("oitava", 0)),
+        nomes_das_notas=bool(opcoes.get("nomes", True)),
     )
     resultado["svgs"] = render_partitura.renderizar_svgs(resultado["musicxml"])
     return resultado
